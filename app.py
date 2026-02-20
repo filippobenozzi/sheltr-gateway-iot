@@ -430,12 +430,14 @@ def env_escape(value: str) -> str:
 
 def sync_newt_env(cfg: dict[str, Any]) -> None:
     newt = as_dict(cfg.get("newt"))
+    endpoint = normalize_text(newt.get("endpoint"), "https://app.pangolin.net")
     lines = [
         "# File auto-generato da AlgoDomo. Modificare da /config",
         f'NEWT_ENABLED={"1" if bool_value(newt.get("enabled")) else "0"}',
         f'NEWT_ID="{env_escape(normalize_text(newt.get("id"), ""))}"',
         f'NEWT_SECRET="{env_escape(normalize_text(newt.get("secret"), ""))}"',
-        f'NEWT_ENDPOINT="{env_escape(normalize_text(newt.get("endpoint"), "https://app.pangolin.net"))}"',
+        f'PANGOLIN_ENDPOINT="{env_escape(endpoint)}"',
+        f'NEWT_ENDPOINT="{env_escape(endpoint)}"',
     ]
     write_text_atomic(NEWT_ENV_PATH, "\n".join(lines) + "\n")
 

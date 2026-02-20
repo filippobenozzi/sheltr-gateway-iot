@@ -140,7 +140,7 @@ systemctl restart "${APP_NAME}.service"
 if grep -q '^NEWT_ENABLED=1' "${NEWT_ENV_FILE}" \
   && grep -q '^NEWT_ID="[^"]\\+"' "${NEWT_ENV_FILE}" \
   && grep -q '^NEWT_SECRET="[^"]\\+"' "${NEWT_ENV_FILE}" \
-  && grep -q '^NEWT_ENDPOINT="[^"]\\+"' "${NEWT_ENV_FILE}"; then
+  && (grep -q '^PANGOLIN_ENDPOINT="[^"]\\+"' "${NEWT_ENV_FILE}" || grep -q '^NEWT_ENDPOINT="[^"]\\+"' "${NEWT_ENV_FILE}"); then
   systemctl restart newt.service || true
 else
   systemctl stop newt.service >/dev/null 2>&1 || true

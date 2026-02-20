@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-/etc/algodomoiot/newt.env
-ExecCondition=/bin/sh -c '[ "${NEWT_ENABLED:-0}" = "1" ] && [ -n "${NEWT_ID:-}" ] && [ -n "${NEWT_SECRET:-}" ] && [ -n "${NEWT_ENDPOINT:-}" ]'
-ExecStart=/usr/local/bin/newt --id ${NEWT_ID} --secret ${NEWT_SECRET} --endpoint ${NEWT_ENDPOINT}
+ExecCondition=/bin/sh -c '[ "${NEWT_ENABLED:-0}" = "1" ] && [ -n "${NEWT_ID:-}" ] && [ -n "${NEWT_SECRET:-}" ] && { [ -n "${PANGOLIN_ENDPOINT:-}" ] || [ -n "${NEWT_ENDPOINT:-}" ]; }'
+ExecStart=/bin/sh -c '/usr/local/bin/newt -id "${NEWT_ID}" -secret "${NEWT_SECRET}" -endpoint "${PANGOLIN_ENDPOINT:-${NEWT_ENDPOINT:-https://app.pangolin.net}}"'
 Restart=on-failure
 RestartSec=3
 
