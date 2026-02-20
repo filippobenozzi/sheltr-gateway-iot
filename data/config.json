@@ -4,7 +4,21 @@
     "baudrate": 9600,
     "timeoutMs": 1200
   },
+  "displayName": "Controllo Casa",
   "apiToken": "cambia-questo-token",
+  "newt": {
+    "enabled": false,
+    "id": "",
+    "secret": "",
+    "endpoint": "https://app.pangolin.net"
+  },
+  "network": {
+    "mode": "ethernet",
+    "wifi": {
+      "ssid": "",
+      "password": ""
+    }
+  },
   "boards": [
     {
       "id": "luci-1",

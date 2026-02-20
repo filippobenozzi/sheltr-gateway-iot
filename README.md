@@ -6,6 +6,8 @@ Applicazione Python leggera con:
 - pagina controllo: `/` (entita divise per stanza, `/control` compatibile)
 - API `GET` autenticate da token (in query)
 - invio comandi via seriale (`/dev/ttyS0` di default, 9600 8N1)
+- integrazione `newt` (configurabile da UI + service systemd)
+- gestione rete Raspberry (wifi/ethernet da UI)
 
 Tutti i dati vengono salvati in JSON locale.
 
@@ -18,6 +20,9 @@ Da `/config` ora puoi programmare tutto senza editare JSON manualmente:
 - tipo (`light`, `shutter`, `thermostat`)
 - range canali
 - nome e stanza di ogni canale
+- parametri `newt` (`enabled`, `id`, `secret`, `endpoint`)
+- rete Raspberry (`mode` ethernet/wifi + credenziali wifi)
+- pulsanti di manutenzione: restart servizio, restart newt, applica rete
 
 ## Formato configurazione (salvato in JSON)
 
@@ -82,13 +87,20 @@ Server default: `http://localhost`
   - `GET /api/cmd/poll?token=...&address=1`
 - Programmazione indirizzo (modalità Prog):
   - `GET /api/cmd/program-address?token=...&address=5`
+- Info sistema:
+  - `GET /api/system/info?token=...`
+- Admin:
+  - `GET /api/admin/restart?token=...&service=app|newt`
+  - `GET /api/admin/apply-network?token=...`
 
 ## Installazione Raspberry Pi + systemd
 
 File inclusi:
 
 - service: `deploy/algodomoiot.service`
+- service newt: `deploy/newt.service`
 - env: `deploy/algodomoiot.env`
+- env newt: `deploy/newt.env`
 - installer: `install_raspberry.sh`
 
 Installazione:
@@ -103,6 +115,7 @@ L'installer:
 - copia app in `/opt/algodomoiot`
 - crea JSON in `/etc/algodomoiot`
 - abilita/avvia `algodomoiot.service`
+- installa/abilita `newt.service` (avvio effettivo quando `NEWT_ENABLED=1` e credenziali presenti)
 - aggiunge utente servizio al gruppo `dialout` (se presente)
 - disabilita e mette in `mask` `serial-getty@ttyS0.service` e `serial-getty@serial0.service`
 - rimuove la console seriale da `cmdline.txt` (con backup automatico)

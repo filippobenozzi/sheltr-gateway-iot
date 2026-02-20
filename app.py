@@ -10,6 +10,7 @@ import math
 import os
 import select
 import socket
+import subprocess
 import termios
 import threading
 import time
@@ -62,6 +63,8 @@ DEFAULT_CONFIG_PATH = DATA_DIR / "config.json"
 DEFAULT_STATE_PATH = DATA_DIR / "state.json"
 CONFIG_PATH = Path(os.environ.get("ALGODOMO_CONFIG", str(DEFAULT_CONFIG_PATH)))
 STATE_PATH = Path(os.environ.get("ALGODOMO_STATE", str(DEFAULT_STATE_PATH)))
+NEWT_ENV_PATH = Path(os.environ.get("ALGODOMO_NEWT_ENV", "/etc/default/newt"))
+ADMIN_CONTROL_SCRIPT = os.environ.get("ALGODOMO_ADMIN_SCRIPT", "/usr/local/lib/algodomoiot-admin/admin_control.sh")
 
 BAUD_MAP = {
     1200: termios.B1200,
@@ -118,6 +121,19 @@ def default_config() -> dict[str, Any]:
         },
         "displayName": "Controllo Casa",
         "apiToken": "cambia-questo-token",
+        "newt": {
+            "enabled": False,
+            "id": "",
+            "secret": "",
+            "endpoint": "https://app.pangolin.net",
+        },
+        "network": {
+            "mode": "ethernet",
+            "wifi": {
+                "ssid": "",
+                "password": "",
+            },
+        },
         "boards": [
             make_board("luci-1", "Scheda Luci", 1, "light", 1, 8),
             make_board("tapparelle-1", "Scheda Tapparelle", 2, "shutter", 1, 4),
@@ -154,6 +170,13 @@ def read_json(path: Path, fallback: Any) -> Any:
         return copy.deepcopy(fallback)
 
 
+def write_text_atomic(path: Path, payload: str) -> None:
+    ensure_parent(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    tmp.replace(path)
+
+
 def bootstrap() -> None:
     global CONFIG, STATE
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -168,6 +191,11 @@ def bootstrap() -> None:
         CONFIG = normalize_config(read_json(CONFIG_PATH, default_config()))
         STATE = normalize_state(read_json(STATE_PATH, default_state()))
 
+    try:
+        sync_newt_env(get_config())
+    except Exception as exc:  # noqa: BLE001
+        print("[warn] impossibile inizializzare env newt:", exc)
+
 
 def get_config() -> dict[str, Any]:
     with LOCK:
@@ -180,6 +208,10 @@ def set_config(new_config: dict[str, Any]) -> dict[str, Any]:
     with LOCK:
         CONFIG = normalized
     write_json_atomic(CONFIG_PATH, normalized)
+    try:
+        sync_newt_env(normalized)
+    except Exception as exc:  # noqa: BLE001
+        print("[warn] impossibile aggiornare env newt:", exc)
     return copy.deepcopy(normalized)
 
 
@@ -287,6 +319,10 @@ def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
     board = board_any if isinstance(board_any, dict) else {}
     board_id = normalize_id(board.get("id"), f"board-{index}")
@@ -338,7 +374,10 @@ def normalize_config(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raw = {}
 
-    serial_raw = raw.get("serial") if isinstance(raw.get("serial"), dict) else {}
+    serial_raw = as_dict(raw.get("serial"))
+    newt_raw = as_dict(raw.get("newt"))
+    network_raw = as_dict(raw.get("network"))
+    wifi_raw = as_dict(network_raw.get("wifi"))
     boards_raw = as_list(raw.get("boards"))
 
     boards = []
@@ -356,6 +395,19 @@ def normalize_config(raw: Any) -> dict[str, Any]:
         },
         "displayName": normalize_text(raw.get("displayName"), defaults["displayName"]),
         "apiToken": normalize_text(raw.get("apiToken"), defaults["apiToken"]),
+        "newt": {
+            "enabled": bool_value(newt_raw.get("enabled")),
+            "id": normalize_text(newt_raw.get("id"), ""),
+            "secret": normalize_text(newt_raw.get("secret"), ""),
+            "endpoint": normalize_text(newt_raw.get("endpoint"), defaults["newt"]["endpoint"]),
+        },
+        "network": {
+            "mode": "wifi" if normalize_text(network_raw.get("mode"), "ethernet").lower() == "wifi" else "ethernet",
+            "wifi": {
+                "ssid": normalize_text(wifi_raw.get("ssid"), ""),
+                "password": normalize_text(wifi_raw.get("password"), ""),
+            },
+        },
         "boards": boards,
     }
 
@@ -370,6 +422,132 @@ def normalize_state(raw: Any) -> dict[str, Any]:
         "thermostats": raw.get("thermostats") if isinstance(raw.get("thermostats"), dict) else {},
         "updatedAt": int(to_number(raw.get("updatedAt"), 0)),
     }
+
+
+def env_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def sync_newt_env(cfg: dict[str, Any]) -> None:
+    newt = as_dict(cfg.get("newt"))
+    lines = [
+        "# File auto-generato da AlgoDomo. Modificare da /config",
+        f'NEWT_ENABLED={"1" if bool_value(newt.get("enabled")) else "0"}',
+        f'NEWT_ID="{env_escape(normalize_text(newt.get("id"), ""))}"',
+        f'NEWT_SECRET="{env_escape(normalize_text(newt.get("secret"), ""))}"',
+        f'NEWT_ENDPOINT="{env_escape(normalize_text(newt.get("endpoint"), "https://app.pangolin.net"))}"',
+    ]
+    write_text_atomic(NEWT_ENV_PATH, "\n".join(lines) + "\n")
+
+
+def run_cmd(args: list[str], timeout_s: int = 20) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=max(1, timeout_s),
+            check=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "code": -1, "stdout": "", "stderr": str(exc), "cmd": args}
+    return {
+        "ok": proc.returncode == 0,
+        "code": proc.returncode,
+        "stdout": (proc.stdout or "").strip(),
+        "stderr": (proc.stderr or "").strip(),
+        "cmd": args,
+    }
+
+
+def list_ipv4_by_interface() -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    out = run_cmd(["ip", "-o", "-4", "addr", "show"])
+    if not out["ok"]:
+        return result
+    for line in out["stdout"].splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        iface = parts[1]
+        cidr = parts[3]
+        ip = cidr.split("/", 1)[0].strip()
+        if not ip:
+            continue
+        result.setdefault(iface, []).append(ip)
+    return result
+
+
+def interface_type(name: str) -> str:
+    if Path(f"/sys/class/net/{name}/wireless").exists():
+        return "wifi"
+    if name.startswith("eth"):
+        return "ethernet"
+    return "other"
+
+
+def read_text(path: Path, fallback: str = "") -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return fallback
+
+
+def service_status(unit: str) -> str:
+    status = run_cmd(["systemctl", "is-active", unit], timeout_s=6)
+    if status["ok"] and status["stdout"]:
+        return normalize_text(status["stdout"], "unknown")
+    if status["stdout"]:
+        return normalize_text(status["stdout"], "unknown")
+    return "unknown"
+
+
+def system_info() -> dict[str, Any]:
+    ipv4 = list_ipv4_by_interface()
+    interfaces = []
+
+    for iface_path in sorted(Path("/sys/class/net").glob("*")):
+        name = iface_path.name
+        if name == "lo":
+            continue
+        interfaces.append(
+            {
+                "name": name,
+                "type": interface_type(name),
+                "state": read_text(iface_path / "operstate", "unknown"),
+                "ips": ipv4.get(name, []),
+            }
+        )
+
+    ips = []
+    for item in interfaces:
+        for ip in item.get("ips", []):
+            if ip not in ips:
+                ips.append(ip)
+
+    return {
+        "hostname": socket.gethostname(),
+        "ips": ips,
+        "interfaces": interfaces,
+        "services": {
+            "app": service_status("algodomoiot.service"),
+            "newt": service_status("newt.service"),
+        },
+    }
+
+
+def run_admin_action(action: str, args: list[str] | None = None) -> dict[str, Any]:
+    script = normalize_text(ADMIN_CONTROL_SCRIPT, "")
+    if not script:
+        raise RuntimeError("Script amministrativo non configurato")
+    cmd = ["sudo", "-n", script, action]
+    if args:
+        cmd.extend(args)
+    result = run_cmd(cmd, timeout_s=40)
+    if not result["ok"]:
+        reason = result["stderr"] or result["stdout"] or "comando fallito"
+        raise RuntimeError(reason)
+    return result
 
 
 def to_hex(byte: int) -> str:
@@ -1007,6 +1185,52 @@ def api_program_address(query: dict[str, list[str]]) -> dict[str, Any]:
     }
 
 
+def api_system_info() -> dict[str, Any]:
+    cfg = get_config()
+    return {
+        "ok": True,
+        "system": system_info(),
+        "networkConfig": as_dict(cfg.get("network")),
+        "newtConfig": as_dict(cfg.get("newt")),
+    }
+
+
+def api_admin_restart(query: dict[str, list[str]]) -> dict[str, Any]:
+    service = normalize_text(query_value(query, "service"), "").lower()
+    if service in {"app", "algodomoiot", "algodomoiot.service"}:
+        action = "restart-app"
+        label = "algodomoiot.service"
+    elif service in {"newt", "newt.service"}:
+        action = "restart-newt"
+        label = "newt.service"
+    else:
+        raise ValueError("service non valido: usa app o newt")
+
+    run_admin_action(action)
+    return {
+        "ok": True,
+        "service": label,
+        "message": f"Restart richiesto per {label}",
+    }
+
+
+def api_admin_apply_network() -> dict[str, Any]:
+    cfg = get_config()
+    network = as_dict(cfg.get("network"))
+    mode = "wifi" if normalize_text(network.get("mode"), "ethernet").lower() == "wifi" else "ethernet"
+    wifi = as_dict(network.get("wifi"))
+    ssid = normalize_text(wifi.get("ssid"), "")
+    password = normalize_text(wifi.get("password"), "")
+
+    run_admin_action("apply-network", [mode, ssid, password])
+    return {
+        "ok": True,
+        "mode": mode,
+        "system": system_info(),
+        "message": f"Configurazione rete applicata ({mode})",
+    }
+
+
 class AlgoHandler(BaseHTTPRequestHandler):
     server_version = "AlgoDomoPython/2.0"
 
@@ -1095,6 +1319,10 @@ class AlgoHandler(BaseHTTPRequestHandler):
                     self._json(HTTPStatus.OK, {"ok": True, **build_status(refresh)})
                     return
 
+                if path == "/api/system/info":
+                    self._json(HTTPStatus.OK, api_system_info())
+                    return
+
                 if path == "/api/cmd/light":
                     self._json(HTTPStatus.OK, api_light(query))
                     return
@@ -1113,6 +1341,14 @@ class AlgoHandler(BaseHTTPRequestHandler):
 
                 if path == "/api/cmd/program-address":
                     self._json(HTTPStatus.OK, api_program_address(query))
+                    return
+
+                if path == "/api/admin/restart":
+                    self._json(HTTPStatus.OK, api_admin_restart(query))
+                    return
+
+                if path == "/api/admin/apply-network":
+                    self._json(HTTPStatus.OK, api_admin_apply_network())
                     return
 
                 self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Endpoint non trovato"})

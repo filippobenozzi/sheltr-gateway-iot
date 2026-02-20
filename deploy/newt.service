@@ -1,0 +1,15 @@
+[Unit]
+Description=Newt Connector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/newt
+ExecStartPre=/bin/sh -c '[ "${NEWT_ENABLED:-0}" = "1" ] && [ -n "${NEWT_ID:-}" ] && [ -n "${NEWT_SECRET:-}" ] && [ -n "${NEWT_ENDPOINT:-}" ]'
+ExecStart=/usr/local/bin/newt --id ${NEWT_ID} --secret ${NEWT_SECRET} --endpoint ${NEWT_ENDPOINT}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
