@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 import os
@@ -1036,6 +1037,30 @@ class AlgoHandler(BaseHTTPRequestHandler):
                 self._serve_file(PUBLIC_DIR / "control.html", "text/html; charset=utf-8")
                 return
 
+            if self.command == "GET" and path == "/manifest.webmanifest":
+                self._serve_file(
+                    PUBLIC_DIR / "manifest.webmanifest",
+                    "application/manifest+json; charset=utf-8",
+                    "public, max-age=86400",
+                )
+                return
+
+            if self.command == "GET" and path == "/sw.js":
+                self._serve_file(
+                    PUBLIC_DIR / "sw.js",
+                    "application/javascript; charset=utf-8",
+                    "no-cache, max-age=0, must-revalidate",
+                )
+                return
+
+            if self.command == "GET" and path == "/icon.svg":
+                self._serve_file(
+                    PUBLIC_DIR / "icon.svg",
+                    "image/svg+xml; charset=utf-8",
+                    "public, max-age=31536000, immutable",
+                )
+                return
+
             if self.command == "GET" and path == "/health":
                 self._json(HTTPStatus.OK, {"ok": True})
                 return
@@ -1119,15 +1144,29 @@ class AlgoHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             raise ValueError("JSON non valido") from exc
 
-    def _serve_file(self, file_path: Path, content_type: str) -> None:
+    def _serve_file(
+        self,
+        file_path: Path,
+        content_type: str,
+        cache_control: str = "no-cache, max-age=0, must-revalidate",
+    ) -> None:
         if not file_path.exists() or not file_path.is_file():
             self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "File non trovato"})
             return
 
         data = file_path.read_bytes()
+        etag = '"' + hashlib.sha1(data, usedforsecurity=False).hexdigest()[:16] + '"'  # noqa: S324
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            self.send_header("Cache-Control", cache_control)
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
+
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache_control)
+        self.send_header("ETag", etag)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

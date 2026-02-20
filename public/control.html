@@ -4,116 +4,83 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AlgoDomo Control</title>
-<style>
-body{margin:10px;font:13px/1.3 system-ui,-apple-system,sans-serif;background:#eef1f5;color:#142033}h1{font-size:17px;margin:0 0 8px}#top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}button,input{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}button{border:1px solid #6a7482;background:#fff;border-radius:9px;padding:6px 9px;cursor:pointer}button:hover{background:#f4f7fb}.room{background:#fff;border:1px solid #ced5de;border-radius:12px;padding:10px;margin:10px 0}.room h2{font-size:15px;margin:0 0 8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.card{border:1px solid #d7dce3;border-radius:10px;background:#f9fbfd;padding:8px}.tt{font-weight:700;margin-bottom:4px}.meta{font-size:11px;color:#5b6470;margin-bottom:6px}.state{display:inline-block;padding:2px 7px;border-radius:999px;border:1px solid #c4cbd4;background:#fff;font-size:11px;margin:0 4px 6px 0}.a{display:flex;gap:6px;flex-wrap:wrap}.a button{padding:6px 8px;border-radius:8px}.a .pri{background:#1e3a57;color:#fff;border-color:#1e3a57}.a .pri:hover{background:#274967}.tset{display:flex;gap:6px;align-items:center}.tset input{width:62px;border:1px solid #b8bec6;border-radius:8px;padding:6px}#msg{font-size:12px;border:1px solid #c9ced6;border-radius:8px;background:#fff;padding:8px;white-space:pre-wrap}.small{font-size:12px;color:#4b5563}
-</style>
+<meta name="theme-color" content="#1e3a57">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>body{margin:10px;font:13px/1.3 system-ui,-apple-system,sans-serif;background:#eef1f5;color:#142033}h1{font-size:17px;margin:0 0 8px}#top,#bulk{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}button,input{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}button{border:1px solid #6a7482;background:#fff;border-radius:9px;padding:6px 9px;cursor:pointer}button:hover{background:#f4f7fb}button:disabled{opacity:.55;cursor:not-allowed}.room{background:#fff;border:1px solid #ced5de;border-radius:12px;padding:10px;margin:10px 0}.room h2{font-size:15px;margin:0 0 8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.card{border:1px solid #d7dce3;border-radius:10px;background:#f9fbfd;padding:8px}.tt{font-weight:700;margin-bottom:4px}.meta{font-size:11px;color:#5b6470;margin-bottom:6px}.state{display:inline-block;padding:2px 7px;border-radius:999px;border:1px solid #c4cbd4;background:#fff;font-size:11px;margin:0 4px 6px 0}.a{display:flex;gap:6px;flex-wrap:wrap}.a button{padding:6px 8px;border-radius:8px}.a .pri{background:#1e3a57;color:#fff;border-color:#1e3a57}.a .pri:hover{background:#274967}.tset{display:flex;gap:6px;align-items:center}.tset input{width:62px;border:1px solid #b8bec6;border-radius:8px;padding:6px}#msg{font-size:12px;border:1px solid #c9ced6;border-radius:8px;background:#fff;padding:8px;white-space:pre-wrap}.small{font-size:12px;color:#4b5563}</style>
 </head>
 <body>
 <h1 id="pageTitle">Controllo Casa</h1>
-<div id="top">
-<button id="refresh">Aggiorna</button>
-<span class="small" id="last"></span>
-</div>
+<div id="top"><button id="refresh">Aggiorna</button><span class="small" id="last"></span></div>
+<div id="bulk"><button id="allLightsOff">Spegni tutte le luci</button><button id="allShuttersDown">Tapparelle GIU tutte</button></div>
 <div id="rooms"></div>
 <pre id="msg"></pre>
-
 <script>
-const $=s=>document.querySelector(s);
-const pageTitle=$("#pageTitle");
-const roomsEl=$("#rooms");
-const msg=$("#msg");
-const last=$("#last");
-let token="";
-let running=false;
-
-function esc(v){return String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
-function sq(v){return String(v??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
-function sid(v){return String(v??"").replace(/[^a-zA-Z0-9_-]/g,"_")}
-function note(t,err){msg.textContent=t;msg.style.color=err?"#a21":"#1b2430"}
-async function getJson(u){const r=await fetch(u,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
-
+const $=s=>document.querySelector(s),titleEl=$("#pageTitle"),roomsEl=$("#rooms"),msg=$("#msg"),last=$("#last"),bLight=$("#allLightsOff"),bShut=$("#allShuttersDown");
+let token="",running=false,bulk=false,cfg=null;
+const esc=v=>String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+const sq=v=>String(v??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+const sid=v=>String(v??"").replace(/[^a-zA-Z0-9_-]/g,"_");
+function note(t,e){msg.textContent=t;msg.style.color=e?"#a21":"#1b2430"}
+async function gj(u){const r=await fetch(u,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
 function lightCard(x){
-const st=x.isOn===null?"?":(x.isOn?"ON":"OFF");
+const st=x.isOn===null?"?":(x.isOn?"ON":"OFF"),on=x.isOn===true?' class="pri"':'',off=x.isOn===false?' class="pri"':'';
 return '<div class="card"><div class="tt">'+esc(x.name)+'</div><div class="meta">'+esc(x.boardName)+' · ch '+x.channel+'</div><div class="state">'+st+'</div><div class="a">'+
-'<button onclick="cmdLight(\''+sq(x.id)+'\',\'on\')">ON</button>'+
-'<button onclick="cmdLight(\''+sq(x.id)+'\',\'off\')">OFF</button></div></div>';
+'<button'+on+' onclick="cmdLight(\''+sq(x.id)+'\',\'on\')">ON</button>'+
+'<button'+off+' onclick="cmdLight(\''+sq(x.id)+'\',\'off\')">OFF</button></div></div>';
 }
-
 function shutterCard(x){
 return '<div class="card"><div class="tt">'+esc(x.name)+'</div><div class="meta">'+esc(x.boardName)+' · ch '+x.channel+'</div><div class="state">'+esc(x.action||"unknown")+'</div><div class="a">'+
 '<button onclick="cmdShutter(\''+sq(x.id)+'\',\'up\')">SU</button>'+
 '<button onclick="cmdShutter(\''+sq(x.id)+'\',\'stop\')">STOP</button>'+
 '<button onclick="cmdShutter(\''+sq(x.id)+'\',\'down\')">GIU</button></div></div>';
 }
-
 function thermoCard(x){
-const id='sp-'+sid(x.id);
-const t=x.temperature===null?'?':Number(x.temperature).toFixed(1)+'C';
-const s=x.setpoint===null?'?':Number(x.setpoint).toFixed(1)+'C';
-const p=x.isOn===true?'ON':'OFF';
-const m=(x.mode==='summer'?'ESTATE':'INVERNO');
+const id='sp-'+sid(x.id),t=x.temperature===null?'?':Number(x.temperature).toFixed(1)+'C',s=x.setpoint===null?'?':Number(x.setpoint).toFixed(1)+'C',p=x.isOn===true?'ON':'OFF',m=(x.mode==='summer'?'ESTATE':'INVERNO'),w=x.mode==='winter'?' class="pri"':'',sm=x.mode==='summer'?' class="pri"':'';
 return '<div class="card"><div class="tt">'+esc(x.name)+'</div><div class="meta">'+esc(x.boardName)+' · ch '+x.channel+'</div><div class="state">'+p+'</div><div class="state">'+m+'</div><div class="state">T '+t+' · SET '+s+'</div><div class="a">'+
-'<button class="pri" onclick="cmdThermoPower(\''+sq(x.id)+'\',\'on\')">ON</button>'+
-'<button onclick="cmdThermoPower(\''+sq(x.id)+'\',\'off\')">OFF</button>'+
-'<button onclick="cmdThermoMode(\''+sq(x.id)+'\',\'winter\')">INVERNO</button>'+
-'<button onclick="cmdThermoMode(\''+sq(x.id)+'\',\'summer\')">ESTATE</button></div><div class="tset">'+
+'<button'+w+' onclick="cmdThermoMode(\''+sq(x.id)+'\',\'winter\')">INVERNO</button>'+
+'<button'+sm+' onclick="cmdThermoMode(\''+sq(x.id)+'\',\'summer\')">ESTATE</button></div><div class="tset">'+
 '<input id="'+id+'" type="number" step="0.1" value="'+esc(x.setpoint??21)+'">'+
 '<button class="pri" onclick="cmdThermoSet(\''+sq(x.id)+'\',\''+id+'\')">SET</button></div></div>';
 }
-
 function roomBlock(r){
-let cards='';
-for(const x of (r.lights||[]))cards+=lightCard(x);
-for(const x of (r.shutters||[]))cards+=shutterCard(x);
-for(const x of (r.thermostats||[]))cards+=thermoCard(x);
-if(!cards)cards='<div class="small">Nessuna entita</div>';
-return '<section class="room"><h2>'+esc(r.name)+'</h2><div class="grid">'+cards+'</div></section>';
+let cards='';for(const x of (r.lights||[]))cards+=lightCard(x);for(const x of (r.shutters||[]))cards+=shutterCard(x);for(const x of (r.thermostats||[]))cards+=thermoCard(x);
+if(!cards)cards='<div class="small">Nessuna entita</div>';return '<section class="room"><h2>'+esc(r.name)+'</h2><div class="grid">'+cards+'</div></section>';
 }
-
 function render(data){
-const rooms=data.rooms||[];
-if(!rooms.length){roomsEl.innerHTML='<section class="room"><div class="small">Nessuna stanza configurata</div></section>';return}
-roomsEl.innerHTML=rooms.map(roomBlock).join('');
-last.textContent='ultimo update: '+new Date(data.updatedAt||Date.now()).toLocaleTimeString();
-if((data.refreshErrors||[]).length){note('Errori polling: '+data.refreshErrors.map(e=>e.address+':'+e.error).join(' | '),true)}
+const rooms=data.rooms||[];if(!rooms.length){roomsEl.innerHTML='<section class="room"><div class="small">Nessuna stanza configurata</div></section>';return}
+roomsEl.innerHTML=rooms.map(roomBlock).join('');last.textContent='ultimo update: '+new Date(data.updatedAt||Date.now()).toLocaleTimeString();
+if((data.refreshErrors||[]).length)note('Errori polling: '+data.refreshErrors.map(e=>e.address+':'+e.error).join(' | '),true);
 }
-
+function bulkDisabled(v){bLight.disabled=v;bShut.disabled=v}
 async function refresh(){
-if(running||!token)return;
-running=true;
-try{const d=await getJson('/api/status?token='+encodeURIComponent(token)+'&refresh=1');render(d);if(!(d.refreshErrors||[]).length)note('OK')}
+if(running||bulk||!token)return;running=true;
+try{const d=await gj('/api/status?token='+encodeURIComponent(token)+'&refresh=1');render(d);if(!(d.refreshErrors||[]).length)note('OK')}
 catch(e){note(e.message,true)}
 finally{running=false}
 }
-
-async function cmd(url){
-try{
-const r=await getJson(url);
-if(Array.isArray(r.frames)&&r.frames.length){
-note('Comandi: '+r.frames.map(x=>x.type+': '+(x.frame?.hex||'?')).join(' | '));
-}else if(r.frame?.hex){
-note('Comando: '+r.frame.hex);
-}else{
-note('Comando eseguito');
-}
-await refresh()
-}
+async function cmd(url,doRefresh=true){
+try{const r=await gj(url);if(Array.isArray(r.frames)&&r.frames.length){note('Comandi: '+r.frames.map(x=>x.type+': '+(x.frame?.hex||'?')).join(' | '))}else if(r.frame?.hex){note('Comando: '+r.frame.hex)}else{note('Comando eseguito')}if(doRefresh)await refresh()}
 catch(e){note(e.message,true)}
 }
-
+function ids(kind){const out=[];for(const b of (cfg?.boards||[])){if(b.kind!==kind)continue;const bid=String(b.id||'').trim();if(!bid)continue;for(const c of (b.channels||[])){const n=Number(c?.channel);if(Number.isFinite(n))out.push(bid+'-c'+Math.trunc(n));}}return out}
+async function runAll(kind,action,label){
+if(!token||bulk)return;const list=ids(kind);if(!list.length){note('Nessuna entita '+label);return}
+bulk=true;bulkDisabled(true);let ok=0,ko=0,ep=kind==='light'?'/api/cmd/light':'/api/cmd/shutter';
+for(const id of list){try{await gj(ep+'?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action));ok++}catch(_){ko++}}
+bulk=false;bulkDisabled(false);note(label+': '+ok+' ok'+(ko?', '+ko+' errori':''),ko>0);await refresh();
+}
 window.cmdLight=(id,action)=>cmd('/api/cmd/light?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action));
 window.cmdShutter=(id,action)=>cmd('/api/cmd/shutter?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action));
 window.cmdThermoSet=(id,inputId)=>{const v=document.getElementById(inputId)?.value;return cmd('/api/cmd/thermostat?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&set='+encodeURIComponent(v));};
-window.cmdThermoPower=(id,p)=>cmd('/api/cmd/thermostat?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&power='+encodeURIComponent(p));
 window.cmdThermoMode=(id,m)=>cmd('/api/cmd/thermostat?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&mode='+encodeURIComponent(m));
-
 async function init(){
-try{const c=await getJson('/api/config');const n=String(c.displayName||'').trim()||'Controllo Casa';pageTitle.textContent=n;document.title=n;token=c.apiToken||'';if(!token)throw new Error('Token non configurato: apri /config');note('Token caricato.');await refresh()}
+try{cfg=await gj('/api/config');const n=String(cfg.displayName||'').trim()||'Controllo Casa';titleEl.textContent=n;document.title=n;token=cfg.apiToken||'';if(!token)throw new Error('Token non configurato: apri /config');note('Token caricato.');await refresh()}
 catch(e){note(e.message,true)}
 }
-
-$("#refresh").onclick=refresh;
-init();
+if('serviceWorker' in navigator)window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{})});
+$("#refresh").onclick=refresh;bLight.onclick=()=>runAll('light','off','Luci OFF globali');bShut.onclick=()=>runAll('shutter','down','Tapparelle GIU globali');init();
 </script>
 </body>
 </html>
