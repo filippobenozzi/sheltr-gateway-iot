@@ -63,7 +63,7 @@ DEFAULT_CONFIG_PATH = DATA_DIR / "config.json"
 DEFAULT_STATE_PATH = DATA_DIR / "state.json"
 CONFIG_PATH = Path(os.environ.get("ALGODOMO_CONFIG", str(DEFAULT_CONFIG_PATH)))
 STATE_PATH = Path(os.environ.get("ALGODOMO_STATE", str(DEFAULT_STATE_PATH)))
-NEWT_ENV_PATH = Path(os.environ.get("ALGODOMO_NEWT_ENV", "/etc/default/newt"))
+NEWT_ENV_PATH = Path(os.environ.get("ALGODOMO_NEWT_ENV", "/etc/algodomoiot/newt.env"))
 ADMIN_CONTROL_SCRIPT = os.environ.get("ALGODOMO_ADMIN_SCRIPT", "/usr/local/lib/algodomoiot-admin/admin_control.sh")
 
 BAUD_MAP = {

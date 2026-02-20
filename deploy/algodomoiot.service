@@ -15,7 +15,7 @@ Environment=HOST=0.0.0.0
 Environment=PORT=80
 Environment=ALGODOMO_CONFIG=/etc/algodomoiot/config.json
 Environment=ALGODOMO_STATE=/etc/algodomoiot/state.json
-Environment=ALGODOMO_NEWT_ENV=/etc/default/newt
+Environment=ALGODOMO_NEWT_ENV=/etc/algodomoiot/newt.env
 Environment=ALGODOMO_ADMIN_SCRIPT=/usr/local/lib/algodomoiot-admin/admin_control.sh
 ExecStartPre=-/usr/bin/systemctl stop serial-getty@ttyS0.service
 ExecStartPre=-/usr/bin/systemctl stop serial-getty@serial0.service

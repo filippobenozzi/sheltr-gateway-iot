@@ -9,7 +9,7 @@ CONFIG_DIR="/etc/${APP_NAME}"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
 NEWT_SERVICE_FILE="/etc/systemd/system/newt.service"
 ENV_FILE="/etc/default/${APP_NAME}"
-NEWT_ENV_FILE="/etc/default/newt"
+NEWT_ENV_FILE="${CONFIG_DIR}/newt.env"
 ADMIN_DIR="/usr/local/lib/algodomoiot-admin"
 SUDOERS_FILE="/etc/sudoers.d/${APP_NAME}-admin"
 NEED_REBOOT=0
@@ -102,7 +102,11 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 if [[ ! -f "${NEWT_ENV_FILE}" ]]; then
-  cp "${INSTALL_DIR}/deploy/newt.env" "${NEWT_ENV_FILE}"
+  if [[ -f "/etc/default/newt" ]]; then
+    cp "/etc/default/newt" "${NEWT_ENV_FILE}"
+  else
+    cp "${INSTALL_DIR}/deploy/newt.env" "${NEWT_ENV_FILE}"
+  fi
 fi
 
 install -m 644 "${INSTALL_DIR}/deploy/algodomoiot.service" "${SERVICE_FILE}"
@@ -121,7 +125,8 @@ chmod 750 "${ADMIN_DIR}/admin_control.sh" "${ADMIN_DIR}/apply_network.sh"
 chmod 440 "${SUDOERS_FILE}"
 chmod 750 "${INSTALL_DIR}" "${CONFIG_DIR}"
 chmod 640 "${CONFIG_DIR}/config.json" "${CONFIG_DIR}/state.json"
-chmod 644 "${ENV_FILE}" "${SERVICE_FILE}" "${NEWT_SERVICE_FILE}" "${NEWT_ENV_FILE}"
+chmod 644 "${ENV_FILE}" "${SERVICE_FILE}" "${NEWT_SERVICE_FILE}"
+chmod 640 "${NEWT_ENV_FILE}"
 
 if command -v visudo >/dev/null 2>&1; then
   visudo -cf "${SUDOERS_FILE}"

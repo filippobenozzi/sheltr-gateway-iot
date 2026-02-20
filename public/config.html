@@ -35,6 +35,7 @@
 <label>NEWT ENDPOINT<input id="newtEndpoint" placeholder="https://..."></label>
 </div>
 <div class="row">
+<button id="save">Salva</button>
 <button id="restartApp">Riavvia servizio</button>
 <button id="restartNewt">Riavvia newt</button>
 </div>
@@ -50,7 +51,6 @@
 <pre id="sys"></pre>
 </div>
 <div class="box"><div id="boards"></div></div>
-<div class="box"><div class="row"><button id="save">Salva</button></div></div>
 <pre id="msg"></pre>
 <script>
 const $=s=>document.querySelector(s),msg=$("#msg"),boardsEl=$("#boards"),sysEl=$("#sys"),imp=$("#importFile");
