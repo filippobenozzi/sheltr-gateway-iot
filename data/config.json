@@ -13,12 +13,82 @@
       "inputs": [
         {
           "index": 1,
-          "name": "Ingresso 1",
+          "name": "Tapparella 1 GIU",
           "room": "Soggiorno",
           "enabled": true,
-          "g2": 0,
-          "g3": 0,
-          "g4": 0,
+          "g2": "0x5c",
+          "g3": 1,
+          "g4": "0x44",
+          "targetAddress": 1
+        },
+        {
+          "index": 2,
+          "name": "Tapparella 2 GIU",
+          "room": "Soggiorno",
+          "enabled": true,
+          "g2": "0x5c",
+          "g3": 2,
+          "g4": "0x44",
+          "targetAddress": 1
+        },
+        {
+          "index": 3,
+          "name": "Tapparella 1 SU",
+          "room": "Soggiorno",
+          "enabled": true,
+          "g2": "0x5c",
+          "g3": 1,
+          "g4": "0x55",
+          "targetAddress": 1
+        },
+        {
+          "index": 4,
+          "name": "Tapparella 2 SU",
+          "room": "Soggiorno",
+          "enabled": true,
+          "g2": "0x5c",
+          "g3": 2,
+          "g4": "0x55",
+          "targetAddress": 1
+        },
+        {
+          "index": 5,
+          "name": "Tapparella 3 GIU",
+          "room": "Soggiorno",
+          "enabled": true,
+          "g2": "0x5c",
+          "g3": 3,
+          "g4": "0x44",
+          "targetAddress": 1
+        },
+        {
+          "index": 6,
+          "name": "Tapparella 4 GIU",
+          "room": "Soggiorno",
+          "enabled": true,
+          "g2": "0x5c",
+          "g3": 4,
+          "g4": "0x44",
+          "targetAddress": 1
+        },
+        {
+          "index": 7,
+          "name": "Tapparella 3 SU",
+          "room": "Soggiorno",
+          "enabled": true,
+          "g2": "0x5c",
+          "g3": 3,
+          "g4": "0x55",
+          "targetAddress": 1
+        },
+        {
+          "index": 8,
+          "name": "Tapparella 4 SU",
+          "room": "Soggiorno",
+          "enabled": true,
+          "g2": "0x5c",
+          "g3": 4,
+          "g4": "0x55",
           "targetAddress": 1
         }
       ]
@@ -37,10 +107,31 @@
     "shutters": [
       {
         "id": "shutter-1",
-        "name": "Tapparella Soggiorno",
+        "name": "Tapparella 1",
         "room": "Soggiorno",
         "address": 1,
         "channel": 1
+      },
+      {
+        "id": "shutter-2",
+        "name": "Tapparella 2",
+        "room": "Soggiorno",
+        "address": 1,
+        "channel": 2
+      },
+      {
+        "id": "shutter-3",
+        "name": "Tapparella 3",
+        "room": "Soggiorno",
+        "address": 1,
+        "channel": 3
+      },
+      {
+        "id": "shutter-4",
+        "name": "Tapparella 4",
+        "room": "Soggiorno",
+        "address": 1,
+        "channel": 4
       }
     ],
     "thermostats": [

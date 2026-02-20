@@ -1,0 +1,23 @@
+[Unit]
+Description=AlgoDomo Python Web/API Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=algodomoiot
+Group=algodomoiot
+WorkingDirectory=/opt/algodomoiot
+EnvironmentFile=-/etc/default/algodomoiot
+Environment=HOST=0.0.0.0
+Environment=PORT=8080
+Environment=ALGODOMO_CONFIG=/etc/algodomoiot/config.json
+Environment=ALGODOMO_STATE=/etc/algodomoiot/state.json
+ExecStart=/usr/bin/python3 /opt/algodomoiot/app.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

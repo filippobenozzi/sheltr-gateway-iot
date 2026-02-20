@@ -32,6 +32,7 @@ button:hover{background:#eef2f7}
 <button id="reload">Ricarica</button>
 <button id="format">Formatta JSON</button>
 <button id="save">Salva</button>
+<button id="presetShutters">Preset 4 tapparelle</button>
 <button id="apply">Invia config ingressi (0x55)</button>
 <label>Nuovo indirizzo scheda (Prog)
 <input id="newAddr" type="number" min="0" max="254" value="1">
@@ -39,6 +40,7 @@ button:hover{background:#eef2f7}
 <button id="prog">Programma indirizzo</button>
 </div>
 <p class="small">`boards[].inputs[]`: index, room, name, enabled, g2,g3,g4,targetAddress. Byte accetta decimale o esadecimale tipo "0x55".</p>
+<p class="small">Preset tapparelle: IN3 SU/IN1 GIU (T1), IN4 SU/IN2 GIU (T2), IN7 SU/IN5 GIU (T3), IN8 SU/IN6 GIU (T4).</p>
 </div>
 
 <div class="box">
@@ -66,6 +68,17 @@ async function postJson(u,p){const r=await fetch(u,{method:"POST",headers:{"cont
 function parseArea(el,name){try{return JSON.parse(el.value||"[]")}catch(e){throw new Error(name+" JSON non valido: "+e.message)}}
 function payload(){return {gateway:{host:fields.host.value.trim(),port:Number(fields.port.value),timeoutMs:Number(fields.timeout.value)},apiToken:fields.token.value.trim(),boards:parseArea(fields.boards,"boards"),entities:parseArea(fields.entities,"entities")}}
 function tokenQ(){return encodeURIComponent(fields.token.value.trim())}
+function shutterPreset(address,room){
+return [
+{index:1,name:"Tapparella 1 GIU",room,enabled:true,g2:"0x5c",g3:1,g4:"0x44",targetAddress:address},
+{index:2,name:"Tapparella 2 GIU",room,enabled:true,g2:"0x5c",g3:2,g4:"0x44",targetAddress:address},
+{index:3,name:"Tapparella 1 SU",room,enabled:true,g2:"0x5c",g3:1,g4:"0x55",targetAddress:address},
+{index:4,name:"Tapparella 2 SU",room,enabled:true,g2:"0x5c",g3:2,g4:"0x55",targetAddress:address},
+{index:5,name:"Tapparella 3 GIU",room,enabled:true,g2:"0x5c",g3:3,g4:"0x44",targetAddress:address},
+{index:6,name:"Tapparella 4 GIU",room,enabled:true,g2:"0x5c",g3:4,g4:"0x44",targetAddress:address},
+{index:7,name:"Tapparella 3 SU",room,enabled:true,g2:"0x5c",g3:3,g4:"0x55",targetAddress:address},
+{index:8,name:"Tapparella 4 SU",room,enabled:true,g2:"0x5c",g3:4,g4:"0x55",targetAddress:address}
+]}
 async function load(){
 try{
 const c=await getJson("/api/config");
@@ -82,6 +95,19 @@ async function save(){
 try{const out=await postJson("/api/config",payload());fields.token.value=out.config.apiToken;note("Configurazione salvata")}
 catch(e){note(e.message,true)}
 }
+function applyShutterPreset(){
+try{
+const boards=parseArea(fields.boards,"boards");
+if(!boards.length)throw new Error("Nessuna scheda configurata");
+for(const b of boards){
+const a=Number(b.address)||1;
+const r=(b.inputs&&b.inputs[0]&&b.inputs[0].room)||"Senza stanza";
+b.inputs=shutterPreset(a,r);
+}
+fields.boards.value=JSON.stringify(boards,null,2);
+note("Preset tapparelle applicato sulle schede");
+}catch(e){note(e.message,true)}
+}
 function formatJson(){try{fields.boards.value=JSON.stringify(parseArea(fields.boards,"boards"),null,2);fields.entities.value=JSON.stringify(parseArea(fields.entities,"entities"),null,2);note("JSON formattato")}catch(e){note(e.message,true)}}
 async function applyInputs(){
 try{if(!fields.token.value.trim())throw new Error("Token mancante");const r=await getJson("/api/cmd/apply-inputs?token="+tokenQ());const ok=r.results?.filter(x=>x.ok).length||0;const ko=r.results?.length-ok;note("Ingressi inviati. OK="+ok+" KO="+ko,ko>0)}
@@ -94,6 +120,7 @@ catch(e){note(e.message,true)}
 $("#reload").onclick=load;
 $("#save").onclick=save;
 $("#format").onclick=formatJson;
+$("#presetShutters").onclick=applyShutterPreset;
 $("#apply").onclick=applyInputs;
 $("#prog").onclick=programAddress;
 load();
