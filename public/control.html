@@ -11,11 +11,11 @@ h1{font-size:18px;margin:0 0 8px}
 button,input{font:13px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 button{border:1px solid #333;background:#fff;border-radius:6px;padding:6px 9px;cursor:pointer}
 button:hover{background:#eaf0f7}
-.room{background:#fff;border:1px solid #c9ced6;border-radius:8px;padding:8px;margin:8px 0}
+.board{background:#fff;border:1px solid #c9ced6;border-radius:8px;padding:8px;margin:8px 0}
 h2{font-size:15px;margin:0 0 6px}
 .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-top:1px solid #edf0f4;padding:5px 0}
 .row:first-child{border-top:0}
-.tag{min-width:130px;font-weight:600}
+.tag{min-width:150px;font-weight:600}
 .muted{font-size:12px;color:#4a4a4a}
 input.temp{width:62px;border:1px solid #b8bec6;border-radius:6px;padding:5px}
 #msg{font-size:12px;border:1px solid #c9ced6;border-radius:6px;background:#fff;padding:8px;white-space:pre-wrap}
@@ -25,17 +25,15 @@ input.temp{width:62px;border:1px solid #b8bec6;border-radius:6px;padding:5px}
 <h1>Controllo AlgoDomo</h1>
 <div id="top">
 <button id="refresh">Aggiorna</button>
-<label class="muted">refresh automatico
-<input id="auto" type="checkbox" checked>
-</label>
+<label class="muted">refresh automatico <input id="auto" type="checkbox" checked></label>
 <span class="muted" id="last"></span>
 </div>
-<div id="rooms"></div>
+<div id="boards"></div>
 <pre id="msg"></pre>
 
 <script>
 const $=s=>document.querySelector(s);
-const roomsEl=$("#rooms");
+const boardsEl=$("#boards");
 const msg=$("#msg");
 const last=$("#last");
 let token="";
@@ -47,53 +45,44 @@ function sq(v){return String(v??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
 function note(t,err){msg.textContent=t;msg.style.color=err?"#a21":"#111"}
 async function getJson(u){const r=await fetch(u,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
 
-function roomHtml(room){
-let h='<div class="room"><h2>'+esc(room.name)+'</h2>';
-if(room.lights?.length){
-h+='<div class="muted">Luci</div>';
-for(const x of room.lights){
-const st=x.isOn===null?'?':(x.isOn?'ON':'OFF');
-h+='<div class="row"><span class="tag">'+esc(x.name)+'</span><span class="muted">'+st+'</span>'+
-'<button onclick="cmdLight(\''+sq(x.id)+'\',\'on\')">ON</button>'+
-'<button onclick="cmdLight(\''+sq(x.id)+'\',\'off\')">OFF</button>'+
-'<button onclick="cmdLight(\''+sq(x.id)+'\',\'toggle\')">TOGGLE</button></div>';
+function rowLight(ch){
+const st=ch.isOn===null?'?':(ch.isOn?'ON':'OFF');
+return '<div class="row"><span class="tag">'+esc(ch.name)+'</span><span class="muted">canale '+ch.channel+' - '+st+'</span>'+
+'<button onclick="cmdLight(\''+sq(ch.id)+'\',\'on\')">ON</button>'+
+'<button onclick="cmdLight(\''+sq(ch.id)+'\',\'off\')">OFF</button>'+
+'<button onclick="cmdLight(\''+sq(ch.id)+'\',\'toggle\')">TOGGLE</button></div>';
 }
+
+function rowShutter(ch){
+return '<div class="row"><span class="tag">'+esc(ch.name)+'</span><span class="muted">canale '+ch.channel+' - '+esc(ch.action||'unknown')+'</span>'+
+'<button onclick="cmdShutter(\''+sq(ch.id)+'\',\'up\')">SU</button>'+
+'<button onclick="cmdShutter(\''+sq(ch.id)+'\',\'down\')">GIU</button>'+
+'<button onclick="cmdShutter(\''+sq(ch.id)+'\',\'stop\')">STOP</button></div>';
 }
-if(room.shutters?.length){
-h+='<div class="muted">Tapparelle</div>';
-for(const x of room.shutters){
-h+='<div class="row"><span class="tag">'+esc(x.name)+'</span><span class="muted">'+esc(x.action||"unknown")+'</span>'+
-'<button onclick="cmdShutter(\''+sq(x.id)+'\',\'up\')">SU</button>'+
-'<button onclick="cmdShutter(\''+sq(x.id)+'\',\'down\')">GIU</button>'+
-'<button onclick="cmdShutter(\''+sq(x.id)+'\',\'stop\')">STOP</button></div>';
+
+function rowThermo(ch){
+const inputId='sp-'+sq(ch.id).replace(/[^a-zA-Z0-9_-]/g,'_');
+const temp=ch.temperature===null?'?':Number(ch.temperature).toFixed(1)+'C';
+const sp=ch.setpoint===null?'?':Number(ch.setpoint).toFixed(1)+'C';
+return '<div class="row"><span class="tag">'+esc(ch.name)+'</span><span class="muted">canale '+ch.channel+' - T:'+temp+' SET:'+sp+'</span>'+
+'<input class="temp" id="'+inputId+'" type="number" step="0.1" value="'+esc(ch.setpoint??21)+'">'+
+'<button onclick="cmdThermo(\''+sq(ch.id)+'\',\''+inputId+'\')">SET</button></div>';
 }
+
+function boardHtml(b){
+let rows='';
+for(const ch of (b.channels||[])){
+if(b.kind==='light')rows+=rowLight(ch);
+else if(b.kind==='shutter')rows+=rowShutter(ch);
+else rows+=rowThermo(ch);
 }
-if(room.thermostats?.length){
-h+='<div class="muted">Termostati</div>';
-for(const x of room.thermostats){
-const id='sp-'+String(x.id||'thermo').replace(/[^a-zA-Z0-9_-]/g,'_');
-const temp=x.temperature===null?'?':Number(x.temperature).toFixed(1)+'C';
-const sp=x.setpoint===null?'?':Number(x.setpoint).toFixed(1)+'C';
-h+='<div class="row"><span class="tag">'+esc(x.name)+'</span><span class="muted">T:'+temp+' SET:'+sp+'</span>'+
-'<input class="temp" id="'+id+'" type="number" step="0.1" value="'+esc(x.setpoint??21)+'">'+
-'<button onclick="cmdThermo(\''+sq(x.id)+'\',\''+id+'\')">SET</button></div>';
-}
-}
-if(room.inputs?.length){
-h+='<div class="muted">Ingressi</div>';
-for(const x of room.inputs){
-const st=x.active===null?'?':(x.active?'attivo':'non attivo');
-h+='<div class="row"><span class="tag">'+esc(x.name)+'</span><span class="muted">'+st+' (scheda '+x.boardAddress+' in '+x.index+')</span></div>';
-}
-}
-h+='</div>';
-return h;
+return '<div class="board"><h2>'+esc(b.name)+' <span class="muted">['+esc(b.kind)+'] addr '+b.address+'</span></h2>'+rows+'</div>';
 }
 
 function render(data){
-const rooms=data.rooms||[];
-if(!rooms.length){roomsEl.innerHTML='<div class="room">Nessuna entita configurata.</div>';return}
-roomsEl.innerHTML=rooms.map(roomHtml).join('');
+const boards=data.boards||[];
+if(!boards.length){boardsEl.innerHTML='<div class="board">Nessuna scheda configurata.</div>';return}
+boardsEl.innerHTML=boards.map(boardHtml).join('');
 last.textContent='ultimo update: '+new Date(data.updatedAt||Date.now()).toLocaleTimeString();
 if((data.refreshErrors||[]).length){note('Errori polling: '+data.refreshErrors.map(e=>e.address+':'+e.error).join(' | '),true)}
 }
@@ -101,13 +90,13 @@ if((data.refreshErrors||[]).length){note('Errori polling: '+data.refreshErrors.m
 async function refresh(){
 if(running||!token)return;
 running=true;
-try{const data=await getJson('/api/status?token='+encodeURIComponent(token)+'&refresh=1');render(data);if(!(data.refreshErrors||[]).length)note('OK')}
+try{const d=await getJson('/api/status?token='+encodeURIComponent(token)+'&refresh=1');render(d);if(!(d.refreshErrors||[]).length)note('OK')}
 catch(e){note(e.message,true)}
 finally{running=false}
 }
 
 async function cmd(url){
-try{const r=await getJson(url);note('Comando eseguito');if(r.frame?.hex)note('Comando eseguito: '+r.frame.hex);await refresh()}
+try{const r=await getJson(url);if(r.frame?.hex)note('Comando: '+r.frame.hex);else note('Comando eseguito');await refresh()}
 catch(e){note(e.message,true)}
 }
 

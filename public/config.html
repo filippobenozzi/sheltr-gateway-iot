@@ -11,20 +11,21 @@ h1{font-size:18px;margin:0 0 8px}
 label{display:flex;flex-direction:column;gap:2px;font-size:12px}
 input,textarea,button{font:13px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 input,textarea{border:1px solid #b8bec6;border-radius:6px;padding:6px;background:#fff}
-textarea{width:100%;min-height:190px;resize:vertical}
+textarea{width:100%;min-height:260px;resize:vertical}
 button{border:1px solid #333;background:#fff;border-radius:6px;padding:6px 9px;cursor:pointer}
 button:hover{background:#eef2f7}
 .box{background:#fff;border:1px solid #c9ced6;border-radius:8px;padding:10px;margin-top:8px}
 .small{font-size:12px;color:#444;margin:3px 0}
-#msg{white-space:pre-wrap;font-size:12px;background:#fff;border:1px solid #c9ced6;border-radius:6px;padding:8px;min-height:26px}
+#msg{white-space:pre-wrap;font-size:12px;background:#fff;border:1px solid #c9ced6;border-radius:6px;padding:8px;min-height:24px}
 </style>
 </head>
 <body>
 <h1>Configurazione AlgoDomo</h1>
+
 <div class="box">
 <div class="row">
-<label>Gateway Host<input id="host" value="127.0.0.1"></label>
-<label>Gateway Port<input id="port" type="number" value="1470"></label>
+<label>Porta seriale<input id="serialPort" value="/dev/ttyS0"></label>
+<label>Baudrate<input id="baudrate" type="number" value="9600"></label>
 <label>Timeout ms<input id="timeout" type="number" value="1200"></label>
 <label>Token API GET<input id="token"></label>
 </div>
@@ -32,25 +33,17 @@ button:hover{background:#eef2f7}
 <button id="reload">Ricarica</button>
 <button id="format">Formatta JSON</button>
 <button id="save">Salva</button>
-<button id="presetShutters">Preset 4 tapparelle</button>
-<button id="apply">Invia config ingressi (0x55)</button>
 <label>Nuovo indirizzo scheda (Prog)
 <input id="newAddr" type="number" min="0" max="254" value="1">
 </label>
 <button id="prog">Programma indirizzo</button>
 </div>
-<p class="small">`boards[].inputs[]`: index, room, name, enabled, g2,g3,g4,targetAddress. Byte accetta decimale o esadecimale tipo "0x55".</p>
-<p class="small">Preset tapparelle: IN3 SU/IN1 GIU (T1), IN4 SU/IN2 GIU (T2), IN7 SU/IN5 GIU (T3), IN8 SU/IN6 GIU (T4).</p>
+<p class="small">Ogni scheda: <b>name</b>, <b>address</b>, <b>channelStart</b>, <b>channelEnd</b>, <b>kind</b> (<code>light|shutter|thermostat</code>), <b>channels[]</b> con nome per canale.</p>
 </div>
 
 <div class="box">
-<p class="small">Schede e ingressi</p>
+<p class="small">Schede</p>
 <textarea id="boards"></textarea>
-</div>
-
-<div class="box">
-<p class="small">Entita controllo (luci, tapparelle, termostati)</p>
-<textarea id="entities"></textarea>
 </div>
 
 <pre id="msg"></pre>
@@ -59,69 +52,63 @@ button:hover{background:#eef2f7}
 const $=s=>document.querySelector(s);
 const msg=$("#msg");
 const fields={
-host:$("#host"),port:$("#port"),timeout:$("#timeout"),token:$("#token"),
-boards:$("#boards"),entities:$("#entities"),newAddr:$("#newAddr")
+serialPort:$("#serialPort"),baudrate:$("#baudrate"),timeout:$("#timeout"),token:$("#token"),
+boards:$("#boards"),newAddr:$("#newAddr")
 };
+
 function note(t,err){msg.textContent=t;msg.style.color=err?"#a21":"#111"}
 async function getJson(u){const r=await fetch(u,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
 async function postJson(u,p){const r=await fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(p)});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
-function parseArea(el,name){try{return JSON.parse(el.value||"[]")}catch(e){throw new Error(name+" JSON non valido: "+e.message)}}
-function payload(){return {gateway:{host:fields.host.value.trim(),port:Number(fields.port.value),timeoutMs:Number(fields.timeout.value)},apiToken:fields.token.value.trim(),boards:parseArea(fields.boards,"boards"),entities:parseArea(fields.entities,"entities")}}
+
+function parseBoards(){
+try{return JSON.parse(fields.boards.value||"[]")}
+catch(e){throw new Error("boards JSON non valido: "+e.message)}
+}
+
+function payload(){
+return {
+serial:{port:fields.serialPort.value.trim(),baudrate:Number(fields.baudrate.value),timeoutMs:Number(fields.timeout.value)},
+apiToken:fields.token.value.trim(),
+boards:parseBoards()
+};
+}
+
 function tokenQ(){return encodeURIComponent(fields.token.value.trim())}
-function shutterPreset(address,room){
-return [
-{index:1,name:"Tapparella 1 GIU",room,enabled:true,g2:"0x5c",g3:1,g4:"0x44",targetAddress:address},
-{index:2,name:"Tapparella 2 GIU",room,enabled:true,g2:"0x5c",g3:2,g4:"0x44",targetAddress:address},
-{index:3,name:"Tapparella 1 SU",room,enabled:true,g2:"0x5c",g3:1,g4:"0x55",targetAddress:address},
-{index:4,name:"Tapparella 2 SU",room,enabled:true,g2:"0x5c",g3:2,g4:"0x55",targetAddress:address},
-{index:5,name:"Tapparella 3 GIU",room,enabled:true,g2:"0x5c",g3:3,g4:"0x44",targetAddress:address},
-{index:6,name:"Tapparella 4 GIU",room,enabled:true,g2:"0x5c",g3:4,g4:"0x44",targetAddress:address},
-{index:7,name:"Tapparella 3 SU",room,enabled:true,g2:"0x5c",g3:3,g4:"0x55",targetAddress:address},
-{index:8,name:"Tapparella 4 SU",room,enabled:true,g2:"0x5c",g3:4,g4:"0x55",targetAddress:address}
-]}
+
 async function load(){
 try{
 const c=await getJson("/api/config");
-fields.host.value=c.gateway?.host||"127.0.0.1";
-fields.port.value=c.gateway?.port||1470;
-fields.timeout.value=c.gateway?.timeoutMs||1200;
+fields.serialPort.value=c.serial?.port||"/dev/ttyS0";
+fields.baudrate.value=c.serial?.baudrate||9600;
+fields.timeout.value=c.serial?.timeoutMs||1200;
 fields.token.value=c.apiToken||"";
 fields.boards.value=JSON.stringify(c.boards||[],null,2);
-fields.entities.value=JSON.stringify(c.entities||{lights:[],shutters:[],thermostats:[]},null,2);
 note("Configurazione caricata");
 }catch(e){note(e.message,true)}
 }
+
 async function save(){
 try{const out=await postJson("/api/config",payload());fields.token.value=out.config.apiToken;note("Configurazione salvata")}
 catch(e){note(e.message,true)}
 }
-function applyShutterPreset(){
-try{
-const boards=parseArea(fields.boards,"boards");
-if(!boards.length)throw new Error("Nessuna scheda configurata");
-for(const b of boards){
-const a=Number(b.address)||1;
-const r=(b.inputs&&b.inputs[0]&&b.inputs[0].room)||"Senza stanza";
-b.inputs=shutterPreset(a,r);
+
+function formatJson(){
+try{fields.boards.value=JSON.stringify(parseBoards(),null,2);note("JSON formattato")}
+catch(e){note(e.message,true)}
 }
-fields.boards.value=JSON.stringify(boards,null,2);
-note("Preset tapparelle applicato sulle schede");
+
+async function programAddress(){
+try{
+if(!fields.token.value.trim())throw new Error("Token mancante");
+const a=Number(fields.newAddr.value);
+const r=await getJson("/api/cmd/program-address?token="+tokenQ()+"&address="+encodeURIComponent(a));
+note("Programmazione inviata. ACK="+r.ackHex+" ("+r.ack+")");
 }catch(e){note(e.message,true)}
 }
-function formatJson(){try{fields.boards.value=JSON.stringify(parseArea(fields.boards,"boards"),null,2);fields.entities.value=JSON.stringify(parseArea(fields.entities,"entities"),null,2);note("JSON formattato")}catch(e){note(e.message,true)}}
-async function applyInputs(){
-try{if(!fields.token.value.trim())throw new Error("Token mancante");const r=await getJson("/api/cmd/apply-inputs?token="+tokenQ());const ok=r.results?.filter(x=>x.ok).length||0;const ko=r.results?.length-ok;note("Ingressi inviati. OK="+ok+" KO="+ko,ko>0)}
-catch(e){note(e.message,true)}
-}
-async function programAddress(){
-try{if(!fields.token.value.trim())throw new Error("Token mancante");const a=Number(fields.newAddr.value);const r=await getJson("/api/cmd/program-address?token="+tokenQ()+"&address="+encodeURIComponent(a));note("Programmazione inviata. ACK="+r.ackHex+" ("+r.ack+")")}
-catch(e){note(e.message,true)}
-}
+
 $("#reload").onclick=load;
 $("#save").onclick=save;
 $("#format").onclick=formatJson;
-$("#presetShutters").onclick=applyShutterPreset;
-$("#apply").onclick=applyInputs;
 $("#prog").onclick=programAddress;
 load();
 </script>

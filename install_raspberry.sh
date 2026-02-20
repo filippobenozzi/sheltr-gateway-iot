@@ -25,6 +25,10 @@ if ! id -u "${APP_USER}" >/dev/null 2>&1; then
   useradd --system --home "${INSTALL_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
 fi
 
+if getent group dialout >/dev/null 2>&1; then
+  usermod -a -G dialout "${APP_USER}" || true
+fi
+
 mkdir -p "${INSTALL_DIR}" "${CONFIG_DIR}"
 
 # Copia codice applicativo (esclude file pesanti/non necessari al runtime)

@@ -1,147 +1,53 @@
 {
-  "gateway": {
-    "host": "127.0.0.1",
-    "port": 1470,
+  "serial": {
+    "port": "/dev/ttyS0",
+    "baudrate": 9600,
     "timeoutMs": 1200
   },
   "apiToken": "cambia-questo-token",
   "boards": [
     {
-      "id": "board-1",
-      "name": "Scheda 1",
+      "id": "luci-1",
+      "name": "Scheda Luci",
       "address": 1,
-      "inputs": [
-        {
-          "index": 1,
-          "name": "Tapparella 1 GIU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 1,
-          "g4": "0x44",
-          "targetAddress": 1
-        },
-        {
-          "index": 2,
-          "name": "Tapparella 2 GIU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 2,
-          "g4": "0x44",
-          "targetAddress": 1
-        },
-        {
-          "index": 3,
-          "name": "Tapparella 1 SU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 1,
-          "g4": "0x55",
-          "targetAddress": 1
-        },
-        {
-          "index": 4,
-          "name": "Tapparella 2 SU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 2,
-          "g4": "0x55",
-          "targetAddress": 1
-        },
-        {
-          "index": 5,
-          "name": "Tapparella 3 GIU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 3,
-          "g4": "0x44",
-          "targetAddress": 1
-        },
-        {
-          "index": 6,
-          "name": "Tapparella 4 GIU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 4,
-          "g4": "0x44",
-          "targetAddress": 1
-        },
-        {
-          "index": 7,
-          "name": "Tapparella 3 SU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 3,
-          "g4": "0x55",
-          "targetAddress": 1
-        },
-        {
-          "index": 8,
-          "name": "Tapparella 4 SU",
-          "room": "Soggiorno",
-          "enabled": true,
-          "g2": "0x5c",
-          "g3": 4,
-          "g4": "0x55",
-          "targetAddress": 1
-        }
+      "kind": "light",
+      "channelStart": 1,
+      "channelEnd": 8,
+      "channels": [
+        { "channel": 1, "name": "Luce 1" },
+        { "channel": 2, "name": "Luce 2" },
+        { "channel": 3, "name": "Luce 3" },
+        { "channel": 4, "name": "Luce 4" },
+        { "channel": 5, "name": "Luce 5" },
+        { "channel": 6, "name": "Luce 6" },
+        { "channel": 7, "name": "Luce 7" },
+        { "channel": 8, "name": "Luce 8" }
+      ]
+    },
+    {
+      "id": "tapparelle-1",
+      "name": "Scheda Tapparelle",
+      "address": 2,
+      "kind": "shutter",
+      "channelStart": 1,
+      "channelEnd": 4,
+      "channels": [
+        { "channel": 1, "name": "Tapparella 1" },
+        { "channel": 2, "name": "Tapparella 2" },
+        { "channel": 3, "name": "Tapparella 3" },
+        { "channel": 4, "name": "Tapparella 4" }
+      ]
+    },
+    {
+      "id": "termostati-1",
+      "name": "Scheda Termostati",
+      "address": 3,
+      "kind": "thermostat",
+      "channelStart": 1,
+      "channelEnd": 1,
+      "channels": [
+        { "channel": 1, "name": "Termostato 1" }
       ]
     }
-  ],
-  "entities": {
-    "lights": [
-      {
-        "id": "light-1",
-        "name": "Luce Soggiorno",
-        "room": "Soggiorno",
-        "address": 1,
-        "relay": 1
-      }
-    ],
-    "shutters": [
-      {
-        "id": "shutter-1",
-        "name": "Tapparella 1",
-        "room": "Soggiorno",
-        "address": 1,
-        "channel": 1
-      },
-      {
-        "id": "shutter-2",
-        "name": "Tapparella 2",
-        "room": "Soggiorno",
-        "address": 1,
-        "channel": 2
-      },
-      {
-        "id": "shutter-3",
-        "name": "Tapparella 3",
-        "room": "Soggiorno",
-        "address": 1,
-        "channel": 3
-      },
-      {
-        "id": "shutter-4",
-        "name": "Tapparella 4",
-        "room": "Soggiorno",
-        "address": 1,
-        "channel": 4
-      }
-    ],
-    "thermostats": [
-      {
-        "id": "thermo-1",
-        "name": "Termostato Soggiorno",
-        "room": "Soggiorno",
-        "address": 1,
-        "setpoint": 21
-      }
-    ]
-  }
+  ]
 }

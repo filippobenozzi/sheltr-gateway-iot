@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AlgoDomo lightweight web app (config + control + GET APIs)."""
+"""AlgoDomo lightweight web app over serial /dev/ttyS0."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ import copy
 import json
 import math
 import os
+import select
 import socket
+import termios
 import threading
 import time
 from http import HTTPStatus
@@ -45,6 +47,13 @@ SHUTTER_ACTIONS = {
     "stop": 0x53,
 }
 
+ALLOWED_KINDS = {"light", "shutter", "thermostat"}
+MAX_CHANNEL_BY_KIND = {
+    "light": 8,
+    "shutter": 4,
+    "thermostat": 8,
+}
+
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 PUBLIC_DIR = ROOT / "public"
@@ -53,116 +62,59 @@ DEFAULT_STATE_PATH = DATA_DIR / "state.json"
 CONFIG_PATH = Path(os.environ.get("ALGODOMO_CONFIG", str(DEFAULT_CONFIG_PATH)))
 STATE_PATH = Path(os.environ.get("ALGODOMO_STATE", str(DEFAULT_STATE_PATH)))
 
+BAUD_MAP = {
+    1200: termios.B1200,
+    2400: termios.B2400,
+    4800: termios.B4800,
+    9600: termios.B9600,
+    19200: termios.B19200,
+    38400: termios.B38400,
+    57600: termios.B57600,
+    115200: termios.B115200,
+}
+
 LOCK = threading.Lock()
+SERIAL_LOCK = threading.Lock()
 CONFIG: dict[str, Any] = {}
 STATE: dict[str, Any] = {}
 
 
-def shutter_input_preset(board_address: int, room: str) -> list[dict[str, Any]]:
-    """Preset mapping richiesto dall'utente per 4 tapparelle su 8 ingressi.
+def make_board(board_id: str, name: str, address: int, kind: str, start: int, end: int) -> dict[str, Any]:
+    channels = []
+    for channel in range(start, end + 1):
+        channels.append({"channel": channel, "name": default_channel_name(kind, channel)})
+    return {
+        "id": board_id,
+        "name": name,
+        "address": address,
+        "kind": kind,
+        "channelStart": start,
+        "channelEnd": end,
+        "channels": channels,
+    }
 
-    Mappatura implementata:
-    - Tapparella 1: IN3 SU, IN1 GIU
-    - Tapparella 2: IN4 SU, IN2 GIU
-    - Tapparella 3: IN7 SU, IN5 GIU
-    - Tapparella 4: IN8 SU, IN6 GIU
-    """
 
-    mapping = [
-        (1, "Tapparella 1 GIU", 1, 0x44),
-        (2, "Tapparella 2 GIU", 2, 0x44),
-        (3, "Tapparella 1 SU", 1, 0x55),
-        (4, "Tapparella 2 SU", 2, 0x55),
-        (5, "Tapparella 3 GIU", 3, 0x44),
-        (6, "Tapparella 4 GIU", 4, 0x44),
-        (7, "Tapparella 3 SU", 3, 0x55),
-        (8, "Tapparella 4 SU", 4, 0x55),
-    ]
-
-    out = []
-    for idx, name, channel, action in mapping:
-        out.append(
-            {
-                "index": idx,
-                "name": name,
-                "room": room,
-                "enabled": True,
-                "g2": 0x5C,
-                "g3": channel,
-                "g4": action,
-                "targetAddress": board_address,
-            }
-        )
-    return out
+def default_channel_name(kind: str, channel: int) -> str:
+    if kind == "light":
+        return f"Luce {channel}"
+    if kind == "shutter":
+        return f"Tapparella {channel}"
+    return f"Termostato {channel}"
 
 
 def default_config() -> dict[str, Any]:
-    room = "Soggiorno"
     return {
-        "gateway": {
-            "host": "127.0.0.1",
-            "port": 1470,
+        "serial": {
+            "port": "/dev/ttyS0",
+            "baudrate": 9600,
             "timeoutMs": 1200,
         },
         "apiToken": "cambia-questo-token",
         "boards": [
-            {
-                "id": "board-1",
-                "name": "Scheda 1",
-                "address": 1,
-                "inputs": shutter_input_preset(1, room),
-            }
+            make_board("luci-1", "Scheda Luci", 1, "light", 1, 8),
+            make_board("tapparelle-1", "Scheda Tapparelle", 2, "shutter", 1, 4),
+            make_board("termostati-1", "Scheda Termostati", 3, "thermostat", 1, 1),
         ],
-        "entities": {
-            "lights": [
-                {
-                    "id": "light-1",
-                    "name": "Luce Soggiorno",
-                    "room": room,
-                    "address": 1,
-                    "relay": 1,
-                }
-            ],
-            "shutters": [
-                {
-                    "id": "shutter-1",
-                    "name": "Tapparella 1",
-                    "room": room,
-                    "address": 1,
-                    "channel": 1,
-                },
-                {
-                    "id": "shutter-2",
-                    "name": "Tapparella 2",
-                    "room": room,
-                    "address": 1,
-                    "channel": 2,
-                },
-                {
-                    "id": "shutter-3",
-                    "name": "Tapparella 3",
-                    "room": room,
-                    "address": 1,
-                    "channel": 3,
-                },
-                {
-                    "id": "shutter-4",
-                    "name": "Tapparella 4",
-                    "room": room,
-                    "address": 1,
-                    "channel": 4,
-                },
-            ],
-            "thermostats": [
-                {
-                    "id": "thermo-1",
-                    "name": "Termostato Soggiorno",
-                    "room": room,
-                    "address": 1,
-                    "setpoint": 21,
-                }
-            ],
-        },
     }
 
 
@@ -204,12 +156,9 @@ def bootstrap() -> None:
     if not STATE_PATH.exists():
         write_json_atomic(STATE_PATH, default_state())
 
-    config_raw = read_json(CONFIG_PATH, default_config())
-    state_raw = read_json(STATE_PATH, default_state())
-
     with LOCK:
-        CONFIG = normalize_config(config_raw)
-        STATE = normalize_state(state_raw)
+        CONFIG = normalize_config(read_json(CONFIG_PATH, default_config()))
+        STATE = normalize_state(read_json(STATE_PATH, default_state()))
 
 
 def get_config() -> dict[str, Any]:
@@ -234,9 +183,9 @@ def get_state() -> dict[str, Any]:
 def update_state(mutator) -> dict[str, Any]:
     global STATE
     with LOCK:
-        data = copy.deepcopy(STATE)
-    mutator(data)
-    normalized = normalize_state(data)
+        tmp = copy.deepcopy(STATE)
+    mutator(tmp)
+    normalized = normalize_state(tmp)
     with LOCK:
         STATE = normalized
     write_json_atomic(STATE_PATH, normalized)
@@ -307,19 +256,19 @@ def bool_value(value: Any) -> bool:
 
 
 def normalize_text(value: Any, fallback: str) -> str:
-    text = str(value if value is not None else "").strip()
-    return text or fallback
+    txt = str(value if value is not None else "").strip()
+    return txt or fallback
 
 
 def normalize_id(value: Any, fallback: str) -> str:
     raw = normalize_text(value, fallback).lower()
-    chars = []
+    cleaned = []
     for ch in raw:
         if ch.isalnum() or ch in {"_", "-"}:
-            chars.append(ch)
+            cleaned.append(ch)
         else:
-            chars.append("-")
-    out = "".join(chars)
+            cleaned.append("-")
+    out = "".join(cleaned)
     while "--" in out:
         out = out.replace("--", "-")
     out = out.strip("-")
@@ -327,110 +276,81 @@ def normalize_id(value: Any, fallback: str) -> str:
 
 
 def as_list(value: Any) -> list[Any]:
-    if isinstance(value, list):
-        return value
-    return []
+    return value if isinstance(value, list) else []
 
 
-def normalize_config(raw: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(raw, dict):
-        raw = {}
+def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
+    board = board_any if isinstance(board_any, dict) else {}
+    board_id = normalize_id(board.get("id"), f"board-{index}")
+    name = normalize_text(board.get("name"), f"Scheda {index}")
+    address = to_address(board.get("address"), index)
 
-    defaults = default_config()
-    gateway_raw = raw.get("gateway", {}) if isinstance(raw.get("gateway"), dict) else {}
-    entities_raw = raw.get("entities", {}) if isinstance(raw.get("entities"), dict) else {}
+    kind_raw = normalize_text(board.get("kind"), "light").lower()
+    kind = kind_raw if kind_raw in ALLOWED_KINDS else "light"
+    max_channel = MAX_CHANNEL_BY_KIND[kind]
 
-    boards_out = []
-    boards_raw = as_list(raw.get("boards"))
-    for i, board_any in enumerate(boards_raw, start=1):
-        board = board_any if isinstance(board_any, dict) else {}
-        board_address = to_address(board.get("address"), i)
-        inputs_out = []
-        for j, input_any in enumerate(as_list(board.get("inputs")), start=1):
-            inp = input_any if isinstance(input_any, dict) else {}
-            idx = clamp_int(to_number(inp.get("index"), j), 1, 8)
-            inputs_out.append(
-                {
-                    "index": idx,
-                    "name": normalize_text(inp.get("name"), f"Ingresso {idx}"),
-                    "room": normalize_text(inp.get("room"), "Senza stanza"),
-                    "enabled": inp.get("enabled", True) is not False,
-                    "g2": to_byte(inp.get("g2"), 0),
-                    "g3": to_byte(inp.get("g3"), 0),
-                    "g4": to_byte(inp.get("g4"), 0),
-                    "targetAddress": to_address(inp.get("targetAddress"), board_address),
-                }
-            )
+    start = clamp_int(to_number(board.get("channelStart"), 1), 1, max_channel)
+    end = clamp_int(to_number(board.get("channelEnd"), max_channel), 1, max_channel)
+    if end < start:
+        end = start
 
-        inputs_out.sort(key=lambda item: item["index"])
-        boards_out.append(
+    provided_names: dict[int, str] = {}
+    for channel_any in as_list(board.get("channels")):
+        entry = channel_any if isinstance(channel_any, dict) else {}
+        channel_num = clamp_int(to_number(entry.get("channel"), -1), 1, max_channel)
+        if channel_num < start or channel_num > end:
+            continue
+        provided_names[channel_num] = normalize_text(entry.get("name"), default_channel_name(kind, channel_num))
+
+    channels = []
+    for channel_num in range(start, end + 1):
+        channels.append(
             {
-                "id": normalize_id(board.get("id"), f"board-{i}"),
-                "name": normalize_text(board.get("name"), f"Scheda {i}"),
-                "address": board_address,
-                "inputs": inputs_out,
-            }
-        )
-
-    lights_out = []
-    for i, light_any in enumerate(as_list(entities_raw.get("lights")), start=1):
-        light = light_any if isinstance(light_any, dict) else {}
-        lights_out.append(
-            {
-                "id": normalize_id(light.get("id"), f"light-{i}"),
-                "name": normalize_text(light.get("name"), f"Luce {i}"),
-                "room": normalize_text(light.get("room"), "Senza stanza"),
-                "address": to_address(light.get("address"), 1),
-                "relay": clamp_int(to_number(light.get("relay"), 1), 1, 8),
-            }
-        )
-
-    shutters_out = []
-    for i, shutter_any in enumerate(as_list(entities_raw.get("shutters")), start=1):
-        shutter = shutter_any if isinstance(shutter_any, dict) else {}
-        shutters_out.append(
-            {
-                "id": normalize_id(shutter.get("id"), f"shutter-{i}"),
-                "name": normalize_text(shutter.get("name"), f"Tapparella {i}"),
-                "room": normalize_text(shutter.get("room"), "Senza stanza"),
-                "address": to_address(shutter.get("address"), 1),
-                "channel": clamp_int(to_number(shutter.get("channel"), 1), 1, 4),
-            }
-        )
-
-    thermostats_out = []
-    for i, thermo_any in enumerate(as_list(entities_raw.get("thermostats")), start=1):
-        thermo = thermo_any if isinstance(thermo_any, dict) else {}
-        thermostats_out.append(
-            {
-                "id": normalize_id(thermo.get("id"), f"thermo-{i}"),
-                "name": normalize_text(thermo.get("name"), f"Termostato {i}"),
-                "room": normalize_text(thermo.get("room"), "Senza stanza"),
-                "address": to_address(thermo.get("address"), 1),
-                "setpoint": to_float(thermo.get("setpoint"), 21.0),
+                "channel": channel_num,
+                "name": provided_names.get(channel_num, default_channel_name(kind, channel_num)),
             }
         )
 
     return {
-        "gateway": {
-            "host": normalize_text(gateway_raw.get("host"), defaults["gateway"]["host"]),
-            "port": to_port(gateway_raw.get("port"), defaults["gateway"]["port"]),
-            "timeoutMs": to_timeout(gateway_raw.get("timeoutMs"), defaults["gateway"]["timeoutMs"]),
-        },
-        "apiToken": normalize_text(raw.get("apiToken"), defaults["apiToken"]),
-        "boards": boards_out,
-        "entities": {
-            "lights": lights_out,
-            "shutters": shutters_out,
-            "thermostats": thermostats_out,
-        },
+        "id": board_id,
+        "name": name,
+        "address": address,
+        "kind": kind,
+        "channelStart": start,
+        "channelEnd": end,
+        "channels": channels,
     }
 
 
-def normalize_state(raw: dict[str, Any]) -> dict[str, Any]:
+def normalize_config(raw: Any) -> dict[str, Any]:
+    defaults = default_config()
     if not isinstance(raw, dict):
         raw = {}
 
+    serial_raw = raw.get("serial") if isinstance(raw.get("serial"), dict) else {}
+    boards_raw = as_list(raw.get("boards"))
+
+    boards = []
+    for idx, board_any in enumerate(boards_raw, start=1):
+        boards.append(normalize_board(board_any, idx))
+
+    if not boards:
+        boards = copy.deepcopy(defaults["boards"])
+
+    return {
+        "serial": {
+            "port": normalize_text(serial_raw.get("port"), defaults["serial"]["port"]),
+            "baudrate": clamp_int(to_number(serial_raw.get("baudrate"), defaults["serial"]["baudrate"]), 1200, 115200),
+            "timeoutMs": to_timeout(serial_raw.get("timeoutMs"), defaults["serial"]["timeoutMs"]),
+        },
+        "apiToken": normalize_text(raw.get("apiToken"), defaults["apiToken"]),
+        "boards": boards,
+    }
+
+
+def normalize_state(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {}
     return {
         "boards": raw.get("boards") if isinstance(raw.get("boards"), dict) else {},
         "lights": raw.get("lights") if isinstance(raw.get("lights"), dict) else {},
@@ -442,6 +362,58 @@ def normalize_state(raw: dict[str, Any]) -> dict[str, Any]:
 
 def to_hex(byte: int) -> str:
     return f"0x{to_byte(byte, 0):02x}"
+
+
+def entity_id(board_id: str, channel: int) -> str:
+    return f"{board_id}-c{channel}"
+
+
+def iter_entities(cfg: dict[str, Any], kind: str | None = None) -> list[dict[str, Any]]:
+    out = []
+    for board in cfg.get("boards", []):
+        board_kind = board.get("kind")
+        if kind and board_kind != kind:
+            continue
+        address = to_address(board.get("address"), -1)
+        for channel in board.get("channels", []):
+            channel_num = clamp_int(to_number(channel.get("channel"), 1), 1, MAX_CHANNEL_BY_KIND.get(board_kind, 8))
+            out.append(
+                {
+                    "id": entity_id(str(board.get("id")), channel_num),
+                    "kind": board_kind,
+                    "boardId": board.get("id"),
+                    "boardName": board.get("name"),
+                    "address": address,
+                    "channel": channel_num,
+                    "name": normalize_text(channel.get("name"), default_channel_name(board_kind or "light", channel_num)),
+                }
+            )
+    return out
+
+
+def find_entity(cfg: dict[str, Any], kind: str, item_id: str, address_raw: str, channel_raw: str) -> dict[str, Any] | None:
+    entities = iter_entities(cfg, kind)
+    if item_id:
+        for item in entities:
+            if item.get("id") == item_id:
+                return item
+        return None
+
+    address = to_address(address_raw, -1)
+    channel = clamp_int(to_number(channel_raw, -1), 1, 8)
+    if address < 0:
+        return None
+
+    by_address = [item for item in entities if item.get("address") == address]
+    if channel >= 1:
+        for item in by_address:
+            if item.get("channel") == channel:
+                return item
+        return None
+
+    if len(by_address) == 1:
+        return by_address[0]
+    return by_address[0] if by_address else None
 
 
 def build_frame(address: int, command: int, g_bytes: list[int]) -> bytes:
@@ -477,29 +449,55 @@ def parse_frame(frame: bytes) -> dict[str, Any]:
     }
 
 
+def configure_serial_port(fd: int, baudrate: int) -> None:
+    attrs = termios.tcgetattr(fd)
+    attrs[0] = 0
+    attrs[1] = 0
+    attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+    attrs[3] = 0
+
+    speed = BAUD_MAP.get(baudrate, termios.B9600)
+    if hasattr(termios, "cfsetispeed"):
+        termios.cfsetispeed(attrs, speed)
+        termios.cfsetospeed(attrs, speed)
+    else:
+        attrs[4] = speed
+        attrs[5] = speed
+
+    attrs[6][termios.VMIN] = 0
+    attrs[6][termios.VTIME] = 0
+
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+    termios.tcflush(fd, termios.TCIOFLUSH)
+
+
 def send_raw(payload: bytes, expect_frame: bool = True, expected_bytes: int = 1) -> Any:
     cfg = get_config()
-    gateway = cfg.get("gateway", {})
-    host = normalize_text(gateway.get("host"), "127.0.0.1")
-    port = to_port(gateway.get("port"), 1470)
-    timeout = to_timeout(gateway.get("timeoutMs"), 1200) / 1000.0
+    serial_cfg = cfg.get("serial", {})
+    port = normalize_text(serial_cfg.get("port"), "/dev/ttyS0")
+    baudrate = clamp_int(to_number(serial_cfg.get("baudrate"), 9600), 1200, 115200)
+    timeout_s = to_timeout(serial_cfg.get("timeoutMs"), 1200) / 1000.0
 
     received = b""
-    end_at = time.monotonic() + timeout
+    deadline = time.monotonic() + timeout_s
 
-    try:
-        with socket.create_connection((host, port), timeout=timeout) as sock:
-            sock.settimeout(timeout)
-            sock.sendall(payload)
+    with SERIAL_LOCK:
+        fd = -1
+        try:
+            fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_SYNC)
+            configure_serial_port(fd, baudrate)
+            os.write(fd, payload)
+            termios.tcdrain(fd)
 
-            while time.monotonic() < end_at:
-                try:
-                    chunk = sock.recv(1024)
-                except socket.timeout:
-                    break
+            while time.monotonic() < deadline:
+                remaining = max(0.0, deadline - time.monotonic())
+                ready, _, _ = select.select([fd], [], [], remaining)
+                if not ready:
+                    continue
 
+                chunk = os.read(fd, 1024)
                 if not chunk:
-                    break
+                    continue
 
                 received += chunk
 
@@ -508,11 +506,15 @@ def send_raw(payload: bytes, expect_frame: bool = True, expected_bytes: int = 1)
                     if frame is not None:
                         return parse_frame(frame)
                 else:
-                    if len(received) >= max(1, expected_bytes):
-                        return received[: max(1, expected_bytes)]
+                    min_bytes = max(1, int(expected_bytes))
+                    if len(received) >= min_bytes:
+                        return received[:min_bytes]
 
-    except OSError as exc:
-        raise RuntimeError(f"Errore comunicazione gateway: {exc}") from exc
+        except OSError as exc:
+            raise RuntimeError(f"Errore seriale su {port}: {exc}") from exc
+        finally:
+            if fd >= 0:
+                os.close(fd)
 
     if expect_frame:
         frame = extract_first_frame(received)
@@ -520,24 +522,17 @@ def send_raw(payload: bytes, expect_frame: bool = True, expected_bytes: int = 1)
             return parse_frame(frame)
         raise RuntimeError("Risposta protocollo non valida")
 
-    if len(received) >= max(1, expected_bytes):
-        return received[: max(1, expected_bytes)]
-
+    min_bytes = max(1, int(expected_bytes))
+    if len(received) >= min_bytes:
+        return received[:min_bytes]
     raise RuntimeError("Nessuna risposta ricevuta")
 
 
 def send_frame(address: int, command: int, g_bytes: list[int]) -> dict[str, Any]:
-    payload = build_frame(address, command, g_bytes)
-    result = send_raw(payload, expect_frame=True)
+    packet = build_frame(address, command, g_bytes)
+    result = send_raw(packet, expect_frame=True)
     assert isinstance(result, dict)
     return result
-
-
-def decode_bits(mask: int) -> dict[str, bool]:
-    out: dict[str, bool] = {}
-    for idx in range(1, 9):
-        out[str(idx)] = (mask & (1 << (idx - 1))) != 0
-    return out
 
 
 def decode_polling_frame(frame: dict[str, Any]) -> dict[str, Any]:
@@ -546,270 +541,63 @@ def decode_polling_frame(frame: dict[str, Any]) -> dict[str, Any]:
     output_mask = to_byte(g[1], 0)
     input_mask = to_byte(g[2], 0)
     sign = -1 if g[6] == 0x2D else 1
-    temp_int = to_byte(g[4], 0)
-    temp_dec = to_byte(g[5], 0)
+    temp_i = to_byte(g[4], 0)
+    temp_d = to_byte(g[5], 0)
 
     return {
         "boardType": type_and_release & 0x0F,
         "release": (type_and_release >> 4) & 0x0F,
         "outputMask": output_mask,
         "inputMask": input_mask,
-        "outputs": decode_bits(output_mask),
-        "inputs": decode_bits(input_mask),
-        "dimmer": to_byte(g[3], 0),
-        "temperature": sign * (temp_int + temp_dec / 10),
+        "temperature": sign * (temp_i + temp_d / 10),
         "powerKw": to_byte(g[7], 0) / 10,
         "setpoint": to_byte(g[8], 0),
     }
 
 
-def is_input_active(mask: int, index: int) -> bool | None:
-    if index < 1 or index > 8:
-        return None
-    bit = 1 << (index - 1)
-    return (mask & bit) == 0
-
-
-def collect_addresses(cfg: dict[str, Any]) -> list[int]:
-    addresses = set()
-    for board in cfg.get("boards", []):
-        addresses.add(to_address(board.get("address"), -1))
-    for light in cfg.get("entities", {}).get("lights", []):
-        addresses.add(to_address(light.get("address"), -1))
-    for shutter in cfg.get("entities", {}).get("shutters", []):
-        addresses.add(to_address(shutter.get("address"), -1))
-    for thermo in cfg.get("entities", {}).get("thermostats", []):
-        addresses.add(to_address(thermo.get("address"), -1))
-    return sorted(addr for addr in addresses if 0 <= addr <= 254)
-
-
-def split_temperature(value: float) -> tuple[int, int]:
-    rounded = round(abs(value), 1)
-    i = int(rounded)
-    d = int(round((rounded - i) * 10))
-    return clamp_int(i, 0, 99), clamp_int(d, 0, 9)
-
-
 def poll_board(address: int) -> dict[str, Any]:
-    response = send_frame(address, 0x40, [])
-    poll = decode_polling_frame(response)
+    frame = send_frame(address, 0x40, [])
+    poll = decode_polling_frame(frame)
+    now = int(time.time() * 1000)
 
     def mutator(state: dict[str, Any]) -> None:
         state.setdefault("boards", {})[str(address)] = {
             "address": address,
             "poll": poll,
-            "updatedAt": int(time.time() * 1000),
-            "frameHex": response.get("hex"),
+            "frameHex": frame.get("hex"),
+            "updatedAt": now,
         }
-        state["updatedAt"] = int(time.time() * 1000)
+        state["updatedAt"] = now
 
     update_state(mutator)
     return poll
 
 
-def infer_light_state(light: dict[str, Any], poll: dict[str, Any] | None, fallback: Any, action: str | None) -> bool | None:
-    if poll is not None and "outputMask" in poll:
-        relay = clamp_int(to_number(light.get("relay"), 1), 1, 8)
-        bit = 1 << (relay - 1)
-        return (to_byte(poll.get("outputMask"), 0) & bit) != 0
+def split_temperature(value: float) -> tuple[int, int]:
+    rounded = round(abs(value), 1)
+    int_part = int(rounded)
+    dec_part = int(round((rounded - int_part) * 10))
+    return clamp_int(int_part, 0, 99), clamp_int(dec_part, 0, 9)
 
+
+def infer_light_state(channel: int, poll: dict[str, Any] | None, fallback: Any, action: str | None) -> bool | None:
+    if isinstance(poll, dict):
+        bit = 1 << (channel - 1)
+        return (to_byte(poll.get("outputMask"), 0) & bit) != 0
     if action == "on":
         return True
     if action == "off":
         return False
     if action == "toggle" and isinstance(fallback, bool):
         return not fallback
-
     return fallback if isinstance(fallback, bool) else None
 
 
-def find_light(cfg: dict[str, Any], light_id: str, address_raw: str, relay_raw: str) -> dict[str, Any] | None:
-    lights = cfg.get("entities", {}).get("lights", [])
-    if light_id:
-        for light in lights:
-            if light.get("id") == light_id:
-                return light
-        return None
-
-    address = to_address(address_raw, -1)
-    relay = clamp_int(to_number(relay_raw, -1), 1, 8)
-    if address < 0:
-        return None
-
-    for light in lights:
-        if to_address(light.get("address"), -1) == address and clamp_int(to_number(light.get("relay"), -1), 1, 8) == relay:
-            return light
-    return None
-
-
-def find_shutter(cfg: dict[str, Any], shutter_id: str, address_raw: str, channel_raw: str) -> dict[str, Any] | None:
-    shutters = cfg.get("entities", {}).get("shutters", [])
-    if shutter_id:
-        for shutter in shutters:
-            if shutter.get("id") == shutter_id:
-                return shutter
-        return None
-
-    address = to_address(address_raw, -1)
-    channel = clamp_int(to_number(channel_raw, -1), 1, 4)
-    if address < 0:
-        return None
-
-    for shutter in shutters:
-        if to_address(shutter.get("address"), -1) == address and clamp_int(to_number(shutter.get("channel"), -1), 1, 4) == channel:
-            return shutter
-    return None
-
-
-def find_thermostat(cfg: dict[str, Any], thermo_id: str, address_raw: str) -> dict[str, Any] | None:
-    thermos = cfg.get("entities", {}).get("thermostats", [])
-    if thermo_id:
-        for thermo in thermos:
-            if thermo.get("id") == thermo_id:
-                return thermo
-        return None
-
-    address = to_address(address_raw, -1)
-    if address < 0:
-        return None
-
-    for thermo in thermos:
-        if to_address(thermo.get("address"), -1) == address:
-            return thermo
-    return None
-
-
-def build_status(refresh: bool) -> dict[str, Any]:
-    cfg = get_config()
-    snapshot = get_state()
-
-    refresh_errors: list[dict[str, Any]] = []
-    if refresh:
-        for address in collect_addresses(cfg):
-            try:
-                poll_board(address)
-            except Exception as exc:
-                refresh_errors.append({"address": address, "error": str(exc)})
-
-    snapshot = get_state()
-    room_map: dict[str, dict[str, Any]] = {}
-
-    def room_of(name: str) -> dict[str, Any]:
-        key = (name or "Senza stanza").strip() or "Senza stanza"
-        if key not in room_map:
-            room_map[key] = {
-                "name": key,
-                "lights": [],
-                "shutters": [],
-                "thermostats": [],
-                "inputs": [],
-            }
-        return room_map[key]
-
-    for light in cfg.get("entities", {}).get("lights", []):
-        address = to_address(light.get("address"), 1)
-        board_state = snapshot.get("boards", {}).get(str(address), {})
-        poll = board_state.get("poll") if isinstance(board_state, dict) else None
-        prev = snapshot.get("lights", {}).get(light.get("id"), {})
-        fallback = prev.get("isOn") if isinstance(prev, dict) else None
-        is_on = infer_light_state(light, poll if isinstance(poll, dict) else None, fallback, None)
-
-        room = room_of(normalize_text(light.get("room"), "Senza stanza"))
-        room["lights"].append(
-            {
-                "id": light.get("id"),
-                "name": light.get("name"),
-                "room": light.get("room"),
-                "address": address,
-                "relay": clamp_int(to_number(light.get("relay"), 1), 1, 8),
-                "isOn": is_on,
-            }
-        )
-
-    for shutter in cfg.get("entities", {}).get("shutters", []):
-        sh_state = snapshot.get("shutters", {}).get(shutter.get("id"), {})
-        action = sh_state.get("action") if isinstance(sh_state, dict) else "unknown"
-        room = room_of(normalize_text(shutter.get("room"), "Senza stanza"))
-        room["shutters"].append(
-            {
-                "id": shutter.get("id"),
-                "name": shutter.get("name"),
-                "room": shutter.get("room"),
-                "address": to_address(shutter.get("address"), 1),
-                "channel": clamp_int(to_number(shutter.get("channel"), 1), 1, 4),
-                "action": action or "unknown",
-            }
-        )
-
-    for thermo in cfg.get("entities", {}).get("thermostats", []):
-        address = to_address(thermo.get("address"), 1)
-        board_state = snapshot.get("boards", {}).get(str(address), {})
-        poll = board_state.get("poll") if isinstance(board_state, dict) else None
-        t_state = snapshot.get("thermostats", {}).get(thermo.get("id"), {})
-        setpoint = None
-        if isinstance(t_state, dict) and isinstance(t_state.get("setpoint"), (int, float)):
-            setpoint = float(t_state.get("setpoint"))
-        elif isinstance(thermo.get("setpoint"), (int, float)):
-            setpoint = float(thermo.get("setpoint"))
-
-        room = room_of(normalize_text(thermo.get("room"), "Senza stanza"))
-        room["thermostats"].append(
-            {
-                "id": thermo.get("id"),
-                "name": thermo.get("name"),
-                "room": thermo.get("room"),
-                "address": address,
-                "temperature": poll.get("temperature") if isinstance(poll, dict) else None,
-                "setpoint": setpoint,
-                "boardSetpoint": poll.get("setpoint") if isinstance(poll, dict) else None,
-            }
-        )
-
+def collect_addresses(cfg: dict[str, Any]) -> list[int]:
+    values = set()
     for board in cfg.get("boards", []):
-        board_address = to_address(board.get("address"), -1)
-        poll = snapshot.get("boards", {}).get(str(board_address), {}).get("poll")
-        input_mask = to_byte(poll.get("inputMask"), 0) if isinstance(poll, dict) else None
-
-        for inp in board.get("inputs", []):
-            idx = clamp_int(to_number(inp.get("index"), 1), 1, 8)
-            active = is_input_active(input_mask, idx) if input_mask is not None else None
-            room = room_of(normalize_text(inp.get("room"), "Senza stanza"))
-            room["inputs"].append(
-                {
-                    "boardId": board.get("id"),
-                    "boardAddress": board_address,
-                    "index": idx,
-                    "name": inp.get("name"),
-                    "room": inp.get("room"),
-                    "active": active,
-                    "enabled": inp.get("enabled", True),
-                    "g2": to_byte(inp.get("g2"), 0),
-                    "g3": to_byte(inp.get("g3"), 0),
-                    "g4": to_byte(inp.get("g4"), 0),
-                    "targetAddress": to_address(inp.get("targetAddress"), board_address),
-                }
-            )
-
-    now_ms = int(time.time() * 1000)
-
-    def mutator(state: dict[str, Any]) -> None:
-        lights = state.setdefault("lights", {})
-        for room in room_map.values():
-            for light in room["lights"]:
-                lights[str(light["id"])] = {
-                    "isOn": light["isOn"],
-                    "updatedAt": now_ms,
-                }
-        state["updatedAt"] = now_ms
-
-    update_state(mutator)
-
-    rooms = sorted(room_map.values(), key=lambda room: room["name"].lower())
-    return {
-        "updatedAt": now_ms,
-        "refreshErrors": refresh_errors,
-        "rooms": rooms,
-    }
+        values.add(to_address(board.get("address"), -1))
+    return sorted(item for item in values if 0 <= item <= 254)
 
 
 def token_valid(token: str) -> bool:
@@ -824,6 +612,99 @@ def query_value(query: dict[str, list[str]], key: str, default: str = "") -> str
     return values[0]
 
 
+def build_status(refresh: bool) -> dict[str, Any]:
+    cfg = get_config()
+
+    refresh_errors: list[dict[str, Any]] = []
+    if refresh:
+        for address in collect_addresses(cfg):
+            try:
+                poll_board(address)
+            except Exception as exc:
+                refresh_errors.append({"address": address, "error": str(exc)})
+
+    snapshot = get_state()
+    now = int(time.time() * 1000)
+
+    boards_out = []
+    new_light_state: dict[str, dict[str, Any]] = {}
+
+    for board in cfg.get("boards", []):
+        address = to_address(board.get("address"), -1)
+        poll = snapshot.get("boards", {}).get(str(address), {}).get("poll")
+
+        payload_board = {
+            "id": board.get("id"),
+            "name": board.get("name"),
+            "address": address,
+            "kind": board.get("kind"),
+            "channels": [],
+        }
+
+        for channel in board.get("channels", []):
+            ch = clamp_int(to_number(channel.get("channel"), 1), 1, 8)
+            ch_name = normalize_text(channel.get("name"), default_channel_name(board.get("kind"), ch))
+            item_id = entity_id(str(board.get("id")), ch)
+
+            if board.get("kind") == "light":
+                prev = snapshot.get("lights", {}).get(item_id, {})
+                fallback = prev.get("isOn") if isinstance(prev, dict) else None
+                is_on = infer_light_state(ch, poll if isinstance(poll, dict) else None, fallback, None)
+                payload_board["channels"].append(
+                    {
+                        "id": item_id,
+                        "channel": ch,
+                        "name": ch_name,
+                        "isOn": is_on,
+                    }
+                )
+                new_light_state[item_id] = {"isOn": is_on, "updatedAt": now}
+
+            elif board.get("kind") == "shutter":
+                prev = snapshot.get("shutters", {}).get(item_id, {})
+                action = prev.get("action") if isinstance(prev, dict) else "unknown"
+                payload_board["channels"].append(
+                    {
+                        "id": item_id,
+                        "channel": ch,
+                        "name": ch_name,
+                        "action": action or "unknown",
+                    }
+                )
+
+            else:  # thermostat
+                prev = snapshot.get("thermostats", {}).get(item_id, {})
+                setpoint = prev.get("setpoint") if isinstance(prev, dict) else None
+                if not isinstance(setpoint, (int, float)):
+                    setpoint = None
+                payload_board["channels"].append(
+                    {
+                        "id": item_id,
+                        "channel": ch,
+                        "name": ch_name,
+                        "temperature": poll.get("temperature") if isinstance(poll, dict) else None,
+                        "setpoint": setpoint,
+                        "boardSetpoint": poll.get("setpoint") if isinstance(poll, dict) else None,
+                    }
+                )
+
+        boards_out.append(payload_board)
+
+    def mutator(state: dict[str, Any]) -> None:
+        lights = state.setdefault("lights", {})
+        for key, value in new_light_state.items():
+            lights[key] = value
+        state["updatedAt"] = now
+
+    update_state(mutator)
+
+    return {
+        "updatedAt": now,
+        "refreshErrors": refresh_errors,
+        "boards": boards_out,
+    }
+
+
 def api_light(query: dict[str, list[str]]) -> dict[str, Any]:
     action = query_value(query, "action").strip().lower()
     code = LIGHT_ACTIONS.get(action)
@@ -831,45 +712,41 @@ def api_light(query: dict[str, list[str]]) -> dict[str, Any]:
         raise ValueError("action non valida")
 
     cfg = get_config()
-    light = find_light(cfg, query_value(query, "id"), query_value(query, "address"), query_value(query, "relay"))
-    if light is None:
+    entity = find_entity(
+        cfg,
+        "light",
+        query_value(query, "id"),
+        query_value(query, "address"),
+        query_value(query, "channel"),
+    )
+    if entity is None:
         raise LookupError("Luce non trovata")
 
-    relay = clamp_int(to_number(light.get("relay"), 1), 1, 8)
-    command = RELAY_COMMANDS.get(relay)
-    if command is None:
-        raise ValueError("relay non valida")
+    relay_cmd = RELAY_COMMANDS.get(entity["channel"])
+    if relay_cmd is None:
+        raise ValueError("channel non valido per luce")
 
-    frame = send_frame(to_address(light.get("address"), 1), command, [code])
+    frame = send_frame(entity["address"], relay_cmd, [code])
 
     poll = None
     try:
-        poll = poll_board(to_address(light.get("address"), 1))
+        poll = poll_board(entity["address"])
     except Exception:
         poll = None
 
     snapshot = get_state()
-    prev = snapshot.get("lights", {}).get(light.get("id"), {})
+    prev = snapshot.get("lights", {}).get(entity["id"], {})
     fallback = prev.get("isOn") if isinstance(prev, dict) else None
-    is_on = infer_light_state(light, poll, fallback, action)
-
-    now_ms = int(time.time() * 1000)
+    is_on = infer_light_state(entity["channel"], poll, fallback, action)
+    now = int(time.time() * 1000)
 
     def mutator(state: dict[str, Any]) -> None:
-        state.setdefault("lights", {})[str(light.get("id"))] = {
-            "isOn": is_on,
-            "updatedAt": now_ms,
-        }
-        state["updatedAt"] = now_ms
+        state.setdefault("lights", {})[entity["id"]] = {"isOn": is_on, "updatedAt": now}
+        state["updatedAt"] = now
 
     update_state(mutator)
 
-    return {
-        "ok": True,
-        "entity": light,
-        "action": action,
-        "frame": frame,
-    }
+    return {"ok": True, "entity": entity, "action": action, "frame": frame}
 
 
 def api_shutter(query: dict[str, list[str]]) -> dict[str, Any]:
@@ -879,38 +756,26 @@ def api_shutter(query: dict[str, list[str]]) -> dict[str, Any]:
         raise ValueError("action non valida")
 
     cfg = get_config()
-    shutter = find_shutter(
+    entity = find_entity(
         cfg,
+        "shutter",
         query_value(query, "id"),
         query_value(query, "address"),
         query_value(query, "channel"),
     )
-    if shutter is None:
+    if entity is None:
         raise LookupError("Tapparella non trovata")
 
-    frame = send_frame(
-        to_address(shutter.get("address"), 1),
-        0x5C,
-        [clamp_int(to_number(shutter.get("channel"), 1), 1, 4), code],
-    )
-
-    now_ms = int(time.time() * 1000)
+    frame = send_frame(entity["address"], 0x5C, [entity["channel"], code])
+    now = int(time.time() * 1000)
 
     def mutator(state: dict[str, Any]) -> None:
-        state.setdefault("shutters", {})[str(shutter.get("id"))] = {
-            "action": action,
-            "updatedAt": now_ms,
-        }
-        state["updatedAt"] = now_ms
+        state.setdefault("shutters", {})[entity["id"]] = {"action": action, "updatedAt": now}
+        state["updatedAt"] = now
 
     update_state(mutator)
 
-    return {
-        "ok": True,
-        "entity": shutter,
-        "action": action,
-        "frame": frame,
-    }
+    return {"ok": True, "entity": entity, "action": action, "frame": frame}
 
 
 def api_thermostat(query: dict[str, list[str]]) -> dict[str, Any]:
@@ -919,94 +784,42 @@ def api_thermostat(query: dict[str, list[str]]) -> dict[str, Any]:
         raise ValueError("set mancante o non valido")
 
     cfg = get_config()
-    thermo = find_thermostat(cfg, query_value(query, "id"), query_value(query, "address"))
-    if thermo is None:
+    entity = find_entity(
+        cfg,
+        "thermostat",
+        query_value(query, "id"),
+        query_value(query, "address"),
+        query_value(query, "channel"),
+    )
+    if entity is None:
         raise LookupError("Termostato non trovato")
 
     i, d = split_temperature(setpoint)
-    frame = send_frame(to_address(thermo.get("address"), 1), 0x5A, [i, d])
-
-    now_ms = int(time.time() * 1000)
+    frame = send_frame(entity["address"], 0x5A, [i, d])
+    now = int(time.time() * 1000)
 
     def mutator(state: dict[str, Any]) -> None:
-        state.setdefault("thermostats", {})[str(thermo.get("id"))] = {
+        state.setdefault("thermostats", {})[entity["id"]] = {
             "setpoint": setpoint,
-            "updatedAt": now_ms,
+            "updatedAt": now,
         }
-        state["updatedAt"] = now_ms
+        state["updatedAt"] = now
 
     update_state(mutator)
 
     try:
-        poll_board(to_address(thermo.get("address"), 1))
+        poll_board(entity["address"])
     except Exception:
         pass
 
-    return {
-        "ok": True,
-        "entity": thermo,
-        "setpoint": setpoint,
-        "frame": frame,
-    }
+    return {"ok": True, "entity": entity, "setpoint": setpoint, "frame": frame}
 
 
-def api_apply_inputs(query: dict[str, list[str]]) -> dict[str, Any]:
-    cfg = get_config()
-    board_filter = query_value(query, "board").strip()
-    address_filter = to_address(query_value(query, "address"), -1)
-
-    targets = []
-    for board in cfg.get("boards", []):
-        if board_filter and board.get("id") != board_filter:
-            continue
-        if address_filter >= 0 and to_address(board.get("address"), -1) != address_filter:
-            continue
-        targets.append(board)
-
-    if not targets:
-        raise LookupError("Nessuna scheda trovata")
-
-    results: list[dict[str, Any]] = []
-    for board in targets:
-        board_address = to_address(board.get("address"), 1)
-        for inp in board.get("inputs", []):
-            if inp.get("enabled") is False:
-                continue
-
-            g_bytes = [
-                clamp_int(to_number(inp.get("index"), 1), 1, 8),
-                to_byte(inp.get("g2"), 0),
-                to_byte(inp.get("g3"), 0),
-                to_byte(inp.get("g4"), 0),
-                to_address(inp.get("targetAddress"), board_address),
-            ]
-
-            try:
-                frame = send_frame(board_address, 0x55, g_bytes)
-                results.append(
-                    {
-                        "ok": True,
-                        "boardId": board.get("id"),
-                        "boardAddress": board_address,
-                        "input": g_bytes[0],
-                        "frame": frame,
-                    }
-                )
-            except Exception as exc:
-                results.append(
-                    {
-                        "ok": False,
-                        "boardId": board.get("id"),
-                        "boardAddress": board_address,
-                        "input": g_bytes[0],
-                        "error": str(exc),
-                    }
-                )
-
-    return {
-        "ok": all(item.get("ok") for item in results),
-        "results": results,
-    }
+def api_poll(query: dict[str, list[str]]) -> dict[str, Any]:
+    address = to_address(query_value(query, "address"), -1)
+    if address < 0:
+        raise ValueError("address mancante")
+    return {"ok": True, "poll": poll_board(address)}
 
 
 def api_program_address(query: dict[str, list[str]]) -> dict[str, Any]:
@@ -1028,7 +841,7 @@ def api_program_address(query: dict[str, list[str]]) -> dict[str, Any]:
 
 
 class AlgoHandler(BaseHTTPRequestHandler):
-    server_version = "AlgoDomoPython/1.0"
+    server_version = "AlgoDomoPython/2.0"
 
     def do_GET(self) -> None:  # noqa: N802
         self._handle_request()
@@ -1071,9 +884,9 @@ class AlgoHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/config" and self.command == "POST":
-                payload = self._read_json_body(default=get_config())
-                config = set_config(payload)
-                self._json(HTTPStatus.OK, {"ok": True, "config": config})
+                payload = self._read_json_body(get_config())
+                cfg = set_config(payload)
+                self._json(HTTPStatus.OK, {"ok": True, "config": cfg})
                 return
 
             if path.startswith("/api/"):
@@ -1104,15 +917,7 @@ class AlgoHandler(BaseHTTPRequestHandler):
                     return
 
                 if path == "/api/cmd/poll":
-                    address = to_address(query_value(query, "address"), -1)
-                    if address < 0:
-                        raise ValueError("address mancante")
-                    poll = poll_board(address)
-                    self._json(HTTPStatus.OK, {"ok": True, "poll": poll})
-                    return
-
-                if path == "/api/cmd/apply-inputs":
-                    self._json(HTTPStatus.OK, api_apply_inputs(query))
+                    self._json(HTTPStatus.OK, api_poll(query))
                     return
 
                 if path == "/api/cmd/program-address":
@@ -1143,7 +948,6 @@ class AlgoHandler(BaseHTTPRequestHandler):
         text = raw.decode("utf-8", errors="strict").strip()
         if not text:
             return default
-
         try:
             return json.loads(text)
         except Exception as exc:
