@@ -1311,7 +1311,9 @@ class AlgoHandler(BaseHTTPRequestHandler):
                 return
 
             if self.command == "GET" and path == "/control":
-                self._serve_file(PUBLIC_DIR / "control.html", "text/html; charset=utf-8")
+                self.send_response(HTTPStatus.MOVED_PERMANENTLY)
+                self.send_header("Location", "/")
+                self.end_headers()
                 return
 
             if self.command == "GET" and path == "/manifest.webmanifest":
