@@ -4,219 +4,80 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AlgoDomo Config</title>
-<style>
-body{font:14px/1.3 system-ui,-apple-system,sans-serif;margin:12px;background:#f6f7f8;color:#111}
-h1{font-size:18px;margin:0 0 8px}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
-label{display:flex;flex-direction:column;gap:2px;font-size:12px}
-input,select,button{font:13px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-input,select{border:1px solid #b8bec6;border-radius:6px;padding:6px;background:#fff}
-button{border:1px solid #333;background:#fff;border-radius:6px;padding:6px 9px;cursor:pointer}
-button:hover{background:#eef2f7}
-.box{background:#fff;border:1px solid #c9ced6;border-radius:8px;padding:10px;margin-top:8px}
-.small{font-size:12px;color:#444;margin:3px 0}
-.board{border:1px solid #d6dae0;border-radius:8px;padding:8px;margin:8px 0;background:#fafbfd}
-.board h2{font-size:14px;margin:0 0 6px}
-.channels{border-top:1px dashed #d2d7de;margin-top:6px;padding-top:6px}
-.ch{display:flex;align-items:center;gap:8px;margin:4px 0}
-.ch span{min-width:60px;font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#444}
-.ch input{min-width:150px}
-.ch .nm{flex:1}
-.ch .rm{width:130px}
-#msg{white-space:pre-wrap;font-size:12px;background:#fff;border:1px solid #c9ced6;border-radius:6px;padding:8px;min-height:24px}
-</style>
+<style>body{font:13px/1.3 system-ui,-apple-system,sans-serif;margin:10px;background:#f6f7f8;color:#111}h1{font-size:17px;margin:0 0 8px}.row{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}label{display:flex;flex-direction:column;gap:2px;font-size:12px}input,select,button{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}input,select{border:1px solid #b8bec6;border-radius:6px;padding:6px;background:#fff}button{border:1px solid #4b5563;background:#fff;border-radius:6px;padding:6px 9px;cursor:pointer}button:hover{background:#eef2f7}.box{background:#fff;border:1px solid #c9ced6;border-radius:8px;padding:10px;margin-top:8px}.small{font-size:12px;color:#444;margin:2px 0}.board{border:1px solid #d6dae0;border-radius:8px;padding:8px;margin:8px 0;background:#fafbfd}.board h2{font-size:14px;margin:0 0 6px}.channels{border-top:1px dashed #d2d7de;margin-top:6px;padding-top:6px}.ch{display:flex;align-items:center;gap:8px;margin:4px 0}.ch span{min-width:56px;font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#444}.ch input{min-width:130px}.ch .nm{flex:1}.ch .rm{width:120px}#msg{white-space:pre-wrap;font-size:12px;background:#fff;border:1px solid #c9ced6;border-radius:6px;padding:8px;min-height:22px}</style>
 </head>
 <body>
 <h1>Programmazione Schede</h1>
-
 <div class="box">
 <div class="row">
 <label>Porta seriale<input id="serialPort" value="/dev/ttyS0"></label>
 <label>Baudrate<input id="baudrate" type="number" value="9600"></label>
 <label>Timeout ms<input id="timeout" type="number" value="1200"></label>
+<label>Nome controllo<input id="displayName" value="Controllo Casa"></label>
 <label>Token API GET<input id="token"></label>
 </div>
 <div class="row">
 <button id="reload">Ricarica</button>
 <button id="addBoard">Aggiungi scheda</button>
 <button id="save">Salva</button>
-<label>Nuovo indirizzo scheda (Prog)
-<input id="newAddr" type="number" min="0" max="254" value="1">
-</label>
+<button id="downloadJson">Scarica JSON</button>
+<button id="uploadJson">Carica JSON</button>
+<input id="importFile" type="file" accept=".json,application/json" style="display:none">
+<label>Nuovo indirizzo (Prog)<input id="newAddr" type="number" min="0" max="254" value="1"></label>
 <button id="prog">Programma indirizzo</button>
 </div>
-<p class="small">Per ogni scheda imposti: nome interno, indirizzo, range canali, tipo (luci/tapparelle/termostato), nome e stanza di ogni canale.</p>
+<p class="small">Nome interno, indirizzo, tipo, range canali, nome+stanza per ogni canale.</p>
 </div>
-
-<div class="box">
-<div id="boards"></div>
-</div>
-
+<div class="box"><div id="boards"></div></div>
 <pre id="msg"></pre>
-
 <script>
-const $=s=>document.querySelector(s);
-const msg=$("#msg");
-const boardsEl=$("#boards");
-const fields={
-serialPort:$("#serialPort"),baudrate:$("#baudrate"),timeout:$("#timeout"),token:$("#token"),newAddr:$("#newAddr")
-};
-const state={boards:[]};
-
-function note(t,err){msg.textContent=t;msg.style.color=err?"#a21":"#111"}
-async function getJson(u){const r=await fetch(u,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
-async function postJson(u,p){const r=await fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(p)});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
-function toInt(v,d){const n=Number(v);return Number.isFinite(n)?Math.trunc(n):d}
-function clamp(n,min,max){return Math.min(max,Math.max(min,n))}
-function cleanId(v,f){const s=String(v||"").toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");return s||f}
-function maxByKind(k){return k==="shutter"?4:8}
-function kindLabel(k){return k==="light"?"Luci":k==="shutter"?"Tapparelle":"Termostati"}
-function defaultChannelName(kind,ch){return kind==="light"?`Luce ${ch}`:kind==="shutter"?`Tapparella ${ch}`:`Termostato ${ch}`}
-
-function normalizeBoard(raw,idx){
-const b=raw&&typeof raw==="object"?raw:{};
-const kind=(b.kind==="light"||b.kind==="shutter"||b.kind==="thermostat")?b.kind:"light";
-const max=maxByKind(kind);
-const id=cleanId(b.id||b.name,`board-${idx+1}`);
-let start=clamp(toInt(b.channelStart,1),1,max);
-let end=clamp(toInt(b.channelEnd,max),1,max);
-if(end<start)end=start;
-const names={};
-const rooms={};
-for(const c of (Array.isArray(b.channels)?b.channels:[])){
-const n=clamp(toInt(c?.channel,-1),1,max);
-if(n<start||n>end)continue;
-names[n]=String(c?.name||"").trim()||defaultChannelName(kind,n);
-rooms[n]=String(c?.room||"").trim()||"Senza stanza";
+const $=s=>document.querySelector(s),msg=$("#msg"),boardsEl=$("#boards"),imp=$("#importFile");
+const f={serialPort:$("#serialPort"),baudrate:$("#baudrate"),timeout:$("#timeout"),displayName:$("#displayName"),token:$("#token"),newAddr:$("#newAddr")};
+const S={boards:[]};
+const esc=v=>String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+const nint=(v,d)=>{const n=Number(v);return Number.isFinite(n)?Math.trunc(n):d};
+const clamp=(n,a,b)=>Math.min(b,Math.max(a,n));
+const clean=(v,d)=>{const s=String(v||"").toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");return s||d};
+const maxBy=k=>k==="shutter"?4:8;
+const defName=(k,ch)=>k==="light"?`Luce ${ch}`:k==="shutter"?`Tapparella ${ch}`:`Termostato ${ch}`;
+function note(t,e){msg.textContent=t;msg.style.color=e?"#a21":"#111"}
+async function gj(u){const r=await fetch(u,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
+async function pj(u,p){const r=await fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(p)});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
+function nb(raw,i){
+const b=raw&&typeof raw==="object"?raw:{},k=(b.kind==="light"||b.kind==="shutter"||b.kind==="thermostat")?b.kind:"light",mx=maxBy(k),id=clean(b.id||b.name,`board-${i+1}`);
+let s=clamp(nint(b.channelStart,1),1,mx),e=clamp(nint(b.channelEnd,mx),1,mx);if(e<s)e=s;
+const names={},rooms={};for(const c of (Array.isArray(b.channels)?b.channels:[])){const n=clamp(nint(c?.channel,-1),1,mx);if(n<s||n>e)continue;names[n]=String(c?.name||"").trim()||defName(k,n);rooms[n]=String(c?.room||"").trim()||"Senza stanza"}
+const ch=[];for(let n=s;n<=e;n++)ch.push({channel:n,name:names[n]||defName(k,n),room:rooms[n]||"Senza stanza"});
+return{id,name:id,address:clamp(nint(b.address,i+1),0,254),kind:k,channelStart:s,channelEnd:e,channels:ch};
 }
-const channels=[];
-for(let n=start;n<=end;n++)channels.push({channel:n,name:names[n]||defaultChannelName(kind,n),room:rooms[n]||"Senza stanza"});
-return {id,name:id,address:clamp(toInt(b.address,idx+1),0,254),kind,channelStart:start,channelEnd:end,channels};
-}
-
-function ensureBoard(board,idx){return normalizeBoard(board,idx)}
-function normalizeBoards(list){return (Array.isArray(list)?list:[]).map((b,i)=>normalizeBoard(b,i))}
-
-function renderBoards(){
-if(!state.boards.length){boardsEl.innerHTML='<p class="small">Nessuna scheda configurata.</p>';return}
-boardsEl.innerHTML=state.boards.map((b,i)=>{
-const opts=["light","shutter","thermostat"].map(k=>`<option value="${k}" ${b.kind===k?"selected":""}>${kindLabel(k)}</option>`).join("");
-const chRows=b.channels.map((c,j)=>`<div class="ch"><span>Canale ${c.channel}</span><input class="nm" value="${esc(c.name)}" placeholder="Nome canale" oninput="setChannelName(${i},${j},this.value)"><input class="rm" value="${esc(c.room||'Senza stanza')}" placeholder="Stanza" oninput="setChannelRoom(${i},${j},this.value)"></div>`).join("");
-return `<div class="board">
-<h2>Scheda ${i+1}</h2>
-<div class="row">
-<label>Nome interno<input value="${esc(b.id)}" oninput="setBoardId(${i},this.value)"></label>
-<label>Indirizzo<input type="number" min="0" max="254" value="${b.address}" onchange="setBoardAddress(${i},this.value)"></label>
-<label>Tipo<select onchange="setBoardKind(${i},this.value)">${opts}</select></label>
-<label>Da canale<input type="number" min="1" max="${maxByKind(b.kind)}" value="${b.channelStart}" onchange="setBoardStart(${i},this.value)"></label>
-<label>A canale<input type="number" min="1" max="${maxByKind(b.kind)}" value="${b.channelEnd}" onchange="setBoardEnd(${i},this.value)"></label>
-<button onclick="removeBoard(${i})">Rimuovi</button>
-</div>
-<div class="channels">${chRows}</div>
-</div>`;
+const nbs=list=>(Array.isArray(list)?list:[]).map((x,i)=>nb(x,i));
+function draw(){
+if(!S.boards.length){boardsEl.innerHTML='<p class="small">Nessuna scheda.</p>';return}
+boardsEl.innerHTML=S.boards.map((b,i)=>{
+const opts=`<option value="light" ${b.kind==="light"?"selected":""}>Luci</option><option value="shutter" ${b.kind==="shutter"?"selected":""}>Tapparelle</option><option value="thermostat" ${b.kind==="thermostat"?"selected":""}>Termostati</option>`;
+const rows=b.channels.map((c,j)=>`<div class="ch"><span>Can ${c.channel}</span><input class="nm" value="${esc(c.name)}" placeholder="Nome" oninput="setChName(${i},${j},this.value)"><input class="rm" value="${esc(c.room||"Senza stanza")}" placeholder="Stanza" oninput="setChRoom(${i},${j},this.value)"></div>`).join("");
+return `<div class="board"><h2>Scheda ${i+1}</h2><div class="row"><label>Nome interno<input value="${esc(b.id)}" oninput="setBid(${i},this.value)"></label><label>Indirizzo<input type="number" min="0" max="254" value="${b.address}" onchange="setBaddr(${i},this.value)"></label><label>Tipo<select onchange="setBkind(${i},this.value)">${opts}</select></label><label>Da<input type="number" min="1" max="${maxBy(b.kind)}" value="${b.channelStart}" onchange="setBstart(${i},this.value)"></label><label>A<input type="number" min="1" max="${maxBy(b.kind)}" value="${b.channelEnd}" onchange="setBend(${i},this.value)"></label><button onclick="delB(${i})">Rimuovi</button></div><div class="channels">${rows}</div></div>`;
 }).join("");
 }
-
-function esc(v){return String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
-
-window.addBoard=()=>{
-state.boards.push(normalizeBoard({},state.boards.length));
-renderBoards();
-};
-
-window.removeBoard=(idx)=>{
-state.boards.splice(idx,1);
-state.boards=normalizeBoards(state.boards);
-renderBoards();
-};
-
-window.setBoardId=(idx,val)=>{
-const id=cleanId(val,`board-${idx+1}`);
-state.boards[idx].id=id;
-state.boards[idx].name=id;
-renderBoards();
-};
-
-window.setBoardAddress=(idx,val)=>{
-state.boards[idx].address=clamp(toInt(val,state.boards[idx].address),0,254);
-state.boards[idx]=ensureBoard(state.boards[idx],idx);
-renderBoards();
-};
-
-window.setBoardKind=(idx,val)=>{
-state.boards[idx].kind=(val==="light"||val==="shutter"||val==="thermostat")?val:"light";
-state.boards[idx]=ensureBoard(state.boards[idx],idx);
-renderBoards();
-};
-
-window.setBoardStart=(idx,val)=>{
-state.boards[idx].channelStart=toInt(val,state.boards[idx].channelStart);
-state.boards[idx]=ensureBoard(state.boards[idx],idx);
-renderBoards();
-};
-
-window.setBoardEnd=(idx,val)=>{
-state.boards[idx].channelEnd=toInt(val,state.boards[idx].channelEnd);
-state.boards[idx]=ensureBoard(state.boards[idx],idx);
-renderBoards();
-};
-
-window.setChannelName=(boardIdx,chIdx,val)=>{
-state.boards[boardIdx].channels[chIdx].name=String(val||"").trim()||defaultChannelName(state.boards[boardIdx].kind,state.boards[boardIdx].channels[chIdx].channel);
-};
-
-window.setChannelRoom=(boardIdx,chIdx,val)=>{
-state.boards[boardIdx].channels[chIdx].room=String(val||"").trim()||"Senza stanza";
-};
-
-function payload(){
-state.boards=normalizeBoards(state.boards);
-return {
-serial:{port:fields.serialPort.value.trim(),baudrate:toInt(fields.baudrate.value,9600),timeoutMs:toInt(fields.timeout.value,1200)},
-apiToken:fields.token.value.trim(),
-boards:state.boards
-};
-}
-
-function tokenQ(){return encodeURIComponent(fields.token.value.trim())}
-
-async function load(){
-try{
-const c=await getJson("/api/config");
-fields.serialPort.value=c.serial?.port||"/dev/ttyS0";
-fields.baudrate.value=c.serial?.baudrate||9600;
-fields.timeout.value=c.serial?.timeoutMs||1200;
-fields.token.value=c.apiToken||"";
-state.boards=normalizeBoards(c.boards||[]);
-renderBoards();
-note("Configurazione caricata");
-}catch(e){note(e.message,true)}
-}
-
-async function save(){
-try{
-const out=await postJson("/api/config",payload());
-fields.token.value=out.config.apiToken||"";
-state.boards=normalizeBoards(out.config.boards||[]);
-renderBoards();
-note("Configurazione salvata");
-}catch(e){note(e.message,true)}
-}
-
-async function programAddress(){
-try{
-if(!fields.token.value.trim())throw new Error("Token mancante");
-const a=toInt(fields.newAddr.value,1);
-const r=await getJson("/api/cmd/program-address?token="+tokenQ()+"&address="+encodeURIComponent(a));
-note("Programmazione inviata. ACK="+r.ackHex+" ("+r.ack+")");
-}catch(e){note(e.message,true)}
-}
-
-$("#reload").onclick=load;
-$("#addBoard").onclick=window.addBoard;
-$("#save").onclick=save;
-$("#prog").onclick=programAddress;
-load();
+window.addB=()=>{S.boards.push(nb({},S.boards.length));draw()};
+window.delB=i=>{S.boards.splice(i,1);S.boards=nbs(S.boards);draw()};
+window.setBid=(i,v)=>{const id=clean(v,`board-${i+1}`);S.boards[i].id=id;S.boards[i].name=id;draw()};
+window.setBaddr=(i,v)=>{S.boards[i].address=clamp(nint(v,S.boards[i].address),0,254);S.boards[i]=nb(S.boards[i],i);draw()};
+window.setBkind=(i,v)=>{S.boards[i].kind=(v==="light"||v==="shutter"||v==="thermostat")?v:"light";S.boards[i]=nb(S.boards[i],i);draw()};
+window.setBstart=(i,v)=>{S.boards[i].channelStart=nint(v,S.boards[i].channelStart);S.boards[i]=nb(S.boards[i],i);draw()};
+window.setBend=(i,v)=>{S.boards[i].channelEnd=nint(v,S.boards[i].channelEnd);S.boards[i]=nb(S.boards[i],i);draw()};
+window.setChName=(bi,ci,v)=>{S.boards[bi].channels[ci].name=String(v||"").trim()||defName(S.boards[bi].kind,S.boards[bi].channels[ci].channel)};
+window.setChRoom=(bi,ci,v)=>{S.boards[bi].channels[ci].room=String(v||"").trim()||"Senza stanza"};
+function payload(){S.boards=nbs(S.boards);return{serial:{port:f.serialPort.value.trim(),baudrate:nint(f.baudrate.value,9600),timeoutMs:nint(f.timeout.value,1200)},displayName:f.displayName.value.trim()||"Controllo Casa",apiToken:f.token.value.trim(),boards:S.boards}}
+function ts(){const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`}
+function applyCfg(c){f.serialPort.value=c.serial?.port||"/dev/ttyS0";f.baudrate.value=c.serial?.baudrate||9600;f.timeout.value=c.serial?.timeoutMs||1200;f.displayName.value=c.displayName||"Controllo Casa";f.token.value=c.apiToken||"";S.boards=nbs(c.boards||[]);draw()}
+async function load(){try{applyCfg(await gj("/api/config"));note("Configurazione caricata")}catch(e){note(e.message,true)}}
+async function save(){try{applyCfg((await pj("/api/config",payload())).config||{});note("Configurazione salvata")}catch(e){note(e.message,true)}}
+function dl(){try{const raw=JSON.stringify(payload(),null,2)+"\n",blob=new Blob([raw],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="algodomoiot-config-"+ts()+".json";document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},0);note("JSON scaricato")}catch(e){note(e.message,true)}}
+function up(){imp.value="";imp.click()}
+async function upf(ev){const file=ev.target.files&&ev.target.files[0];if(!file)return;try{applyCfg((await pj("/api/config",JSON.parse(await file.text()))).config||{});note("JSON caricato")}catch(e){note("Errore JSON: "+e.message,true)}}
+async function prog(){try{if(!f.token.value.trim())throw new Error("Token mancante");const a=nint(f.newAddr.value,1),r=await gj("/api/cmd/program-address?token="+encodeURIComponent(f.token.value.trim())+"&address="+encodeURIComponent(a));note("Programmazione OK ACK="+r.ackHex+" ("+r.ack+")")}catch(e){note(e.message,true)}}
+$("#reload").onclick=load;$("#addBoard").onclick=window.addB;$("#save").onclick=save;$("#downloadJson").onclick=dl;$("#uploadJson").onclick=up;imp.onchange=upf;$("#prog").onclick=prog;load();
 </script>
 </body>
 </html>

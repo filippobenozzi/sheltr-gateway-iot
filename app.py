@@ -115,6 +115,7 @@ def default_config() -> dict[str, Any]:
             "baudrate": 9600,
             "timeoutMs": 1200,
         },
+        "displayName": "Controllo Casa",
         "apiToken": "cambia-questo-token",
         "boards": [
             make_board("luci-1", "Scheda Luci", 1, "light", 1, 8),
@@ -352,6 +353,7 @@ def normalize_config(raw: Any) -> dict[str, Any]:
             "baudrate": clamp_int(to_number(serial_raw.get("baudrate"), defaults["serial"]["baudrate"]), 1200, 115200),
             "timeoutMs": to_timeout(serial_raw.get("timeoutMs"), defaults["serial"]["timeoutMs"]),
         },
+        "displayName": normalize_text(raw.get("displayName"), defaults["displayName"]),
         "apiToken": normalize_text(raw.get("apiToken"), defaults["apiToken"]),
         "boards": boards,
     }
