@@ -82,7 +82,13 @@ STATE: dict[str, Any] = {}
 def make_board(board_id: str, name: str, address: int, kind: str, start: int, end: int) -> dict[str, Any]:
     channels = []
     for channel in range(start, end + 1):
-        channels.append({"channel": channel, "name": default_channel_name(kind, channel)})
+        channels.append(
+            {
+                "channel": channel,
+                "name": default_channel_name(kind, channel),
+                "room": "Senza stanza",
+            }
+        )
     return {
         "id": board_id,
         "name": name,
@@ -295,12 +301,14 @@ def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
         end = start
 
     provided_names: dict[int, str] = {}
+    provided_rooms: dict[int, str] = {}
     for channel_any in as_list(board.get("channels")):
         entry = channel_any if isinstance(channel_any, dict) else {}
         channel_num = clamp_int(to_number(entry.get("channel"), -1), 1, max_channel)
         if channel_num < start or channel_num > end:
             continue
         provided_names[channel_num] = normalize_text(entry.get("name"), default_channel_name(kind, channel_num))
+        provided_rooms[channel_num] = normalize_text(entry.get("room"), "Senza stanza")
 
     channels = []
     for channel_num in range(start, end + 1):
@@ -308,6 +316,7 @@ def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
             {
                 "channel": channel_num,
                 "name": provided_names.get(channel_num, default_channel_name(kind, channel_num)),
+                "room": provided_rooms.get(channel_num, "Senza stanza"),
             }
         )
 
@@ -386,6 +395,7 @@ def iter_entities(cfg: dict[str, Any], kind: str | None = None) -> list[dict[str
                     "address": address,
                     "channel": channel_num,
                     "name": normalize_text(channel.get("name"), default_channel_name(board_kind or "light", channel_num)),
+                    "room": normalize_text(channel.get("room"), "Senza stanza"),
                 }
             )
     return out
@@ -627,7 +637,19 @@ def build_status(refresh: bool) -> dict[str, Any]:
     now = int(time.time() * 1000)
 
     boards_out = []
+    rooms_map: dict[str, dict[str, Any]] = {}
     new_light_state: dict[str, dict[str, Any]] = {}
+
+    def room_bucket(name: str) -> dict[str, Any]:
+        key = normalize_text(name, "Senza stanza")
+        if key not in rooms_map:
+            rooms_map[key] = {
+                "name": key,
+                "lights": [],
+                "shutters": [],
+                "thermostats": [],
+            }
+        return rooms_map[key]
 
     for board in cfg.get("boards", []):
         address = to_address(board.get("address"), -1)
@@ -644,6 +666,7 @@ def build_status(refresh: bool) -> dict[str, Any]:
         for channel in board.get("channels", []):
             ch = clamp_int(to_number(channel.get("channel"), 1), 1, 8)
             ch_name = normalize_text(channel.get("name"), default_channel_name(board.get("kind"), ch))
+            ch_room = normalize_text(channel.get("room"), "Senza stanza")
             item_id = entity_id(str(board.get("id")), ch)
 
             if board.get("kind") == "light":
@@ -655,10 +678,23 @@ def build_status(refresh: bool) -> dict[str, Any]:
                         "id": item_id,
                         "channel": ch,
                         "name": ch_name,
+                        "room": ch_room,
                         "isOn": is_on,
                     }
                 )
                 new_light_state[item_id] = {"isOn": is_on, "updatedAt": now}
+                room_bucket(ch_room)["lights"].append(
+                    {
+                        "id": item_id,
+                        "name": ch_name,
+                        "room": ch_room,
+                        "boardId": board.get("id"),
+                        "boardName": board.get("name"),
+                        "address": address,
+                        "channel": ch,
+                        "isOn": is_on,
+                    }
+                )
 
             elif board.get("kind") == "shutter":
                 prev = snapshot.get("shutters", {}).get(item_id, {})
@@ -668,6 +704,19 @@ def build_status(refresh: bool) -> dict[str, Any]:
                         "id": item_id,
                         "channel": ch,
                         "name": ch_name,
+                        "room": ch_room,
+                        "action": action or "unknown",
+                    }
+                )
+                room_bucket(ch_room)["shutters"].append(
+                    {
+                        "id": item_id,
+                        "name": ch_name,
+                        "room": ch_room,
+                        "boardId": board.get("id"),
+                        "boardName": board.get("name"),
+                        "address": address,
+                        "channel": ch,
                         "action": action or "unknown",
                     }
                 )
@@ -682,6 +731,21 @@ def build_status(refresh: bool) -> dict[str, Any]:
                         "id": item_id,
                         "channel": ch,
                         "name": ch_name,
+                        "room": ch_room,
+                        "temperature": poll.get("temperature") if isinstance(poll, dict) else None,
+                        "setpoint": setpoint,
+                        "boardSetpoint": poll.get("setpoint") if isinstance(poll, dict) else None,
+                    }
+                )
+                room_bucket(ch_room)["thermostats"].append(
+                    {
+                        "id": item_id,
+                        "name": ch_name,
+                        "room": ch_room,
+                        "boardId": board.get("id"),
+                        "boardName": board.get("name"),
+                        "address": address,
+                        "channel": ch,
                         "temperature": poll.get("temperature") if isinstance(poll, dict) else None,
                         "setpoint": setpoint,
                         "boardSetpoint": poll.get("setpoint") if isinstance(poll, dict) else None,
@@ -698,9 +762,12 @@ def build_status(refresh: bool) -> dict[str, Any]:
 
     update_state(mutator)
 
+    rooms_out = sorted(rooms_map.values(), key=lambda item: item["name"].lower())
+
     return {
         "updatedAt": now,
         "refreshErrors": refresh_errors,
+        "rooms": rooms_out,
         "boards": boards_out,
     }
 

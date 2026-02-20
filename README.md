@@ -3,7 +3,7 @@
 Applicazione Python leggera con:
 
 - pagina configurazione: `/config`
-- pagina controllo: `/control`
+- pagina controllo: `/control` (entita divise per stanza)
 - API `GET` autenticate da token (in query)
 - invio comandi via seriale (`/dev/ttyS0` di default, 9600 8N1)
 
@@ -27,7 +27,7 @@ In `config.json` ogni scheda ha solo:
 - `address` (indirizzo scheda)
 - `channelStart`, `channelEnd` (range canali)
 - `kind` (`light`, `shutter`, `thermostat`)
-- `channels[]` con `channel` + `name`
+- `channels[]` con `channel` + `name` + `room` (stanza per ordinamento grafico)
 
 Esempio:
 
@@ -40,8 +40,8 @@ Esempio:
   "channelStart": 1,
   "channelEnd": 4,
   "channels": [
-    {"channel": 1, "name": "Tapparella 1"},
-    {"channel": 2, "name": "Tapparella 2"}
+    {"channel": 1, "name": "Tapparella 1", "room": "Sala"},
+    {"channel": 2, "name": "Tapparella 2", "room": "Cucina"}
   ]
 }
 ```

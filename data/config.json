@@ -14,14 +14,14 @@
       "channelStart": 1,
       "channelEnd": 8,
       "channels": [
-        { "channel": 1, "name": "Luce 1" },
-        { "channel": 2, "name": "Luce 2" },
-        { "channel": 3, "name": "Luce 3" },
-        { "channel": 4, "name": "Luce 4" },
-        { "channel": 5, "name": "Luce 5" },
-        { "channel": 6, "name": "Luce 6" },
-        { "channel": 7, "name": "Luce 7" },
-        { "channel": 8, "name": "Luce 8" }
+        { "channel": 1, "name": "Luce Sala", "room": "Sala" },
+        { "channel": 2, "name": "Luce Cucina", "room": "Cucina" },
+        { "channel": 3, "name": "Luce Camera 1", "room": "Camera 1" },
+        { "channel": 4, "name": "Luce Camera 2", "room": "Camera 2" },
+        { "channel": 5, "name": "Luce Bagno", "room": "Bagno" },
+        { "channel": 6, "name": "Luce Corridoio", "room": "Corridoio" },
+        { "channel": 7, "name": "Luce Esterno", "room": "Esterno" },
+        { "channel": 8, "name": "Luce Garage", "room": "Garage" }
       ]
     },
     {
@@ -32,10 +32,10 @@
       "channelStart": 1,
       "channelEnd": 4,
       "channels": [
-        { "channel": 1, "name": "Tapparella 1" },
-        { "channel": 2, "name": "Tapparella 2" },
-        { "channel": 3, "name": "Tapparella 3" },
-        { "channel": 4, "name": "Tapparella 4" }
+        { "channel": 1, "name": "Tapparella Sala", "room": "Sala" },
+        { "channel": 2, "name": "Tapparella Cucina", "room": "Cucina" },
+        { "channel": 3, "name": "Tapparella Camera 1", "room": "Camera 1" },
+        { "channel": 4, "name": "Tapparella Camera 2", "room": "Camera 2" }
       ]
     },
     {
@@ -46,7 +46,7 @@
       "channelStart": 1,
       "channelEnd": 1,
       "channels": [
-        { "channel": 1, "name": "Termostato 1" }
+        { "channel": 1, "name": "Termostato Zona Giorno", "room": "Sala" }
       ]
     }
   ]

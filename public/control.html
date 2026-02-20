@@ -5,35 +5,45 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AlgoDomo Control</title>
 <style>
-body{font:14px/1.3 system-ui,-apple-system,sans-serif;margin:12px;background:#f4f6f8;color:#111}
+body{font:14px/1.3 system-ui,-apple-system,sans-serif;margin:12px;background:#eef1f5;color:#15202b}
 h1{font-size:18px;margin:0 0 8px}
 #top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
 button,input{font:13px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-button{border:1px solid #333;background:#fff;border-radius:6px;padding:6px 9px;cursor:pointer}
-button:hover{background:#eaf0f7}
-.board{background:#fff;border:1px solid #c9ced6;border-radius:8px;padding:8px;margin:8px 0}
-h2{font-size:15px;margin:0 0 6px}
-.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-top:1px solid #edf0f4;padding:5px 0}
-.row:first-child{border-top:0}
-.tag{min-width:150px;font-weight:600}
-.muted{font-size:12px;color:#4a4a4a}
-input.temp{width:62px;border:1px solid #b8bec6;border-radius:6px;padding:5px}
-#msg{font-size:12px;border:1px solid #c9ced6;border-radius:6px;background:#fff;padding:8px;white-space:pre-wrap}
+button{border:1px solid #5a6675;background:#fff;border-radius:10px;padding:7px 10px;cursor:pointer}
+button:hover{background:#f4f7fb}
+.room{background:#fff;border:1px solid #ced5de;border-radius:12px;padding:10px;margin:10px 0}
+.room h2{font-size:16px;margin:0 0 8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
+.card{border:1px solid #d7dce3;border-radius:10px;background:#f9fbfd;padding:8px}
+.tt{font-weight:700;margin-bottom:5px}
+.meta{font-size:11px;color:#5b6470;margin-bottom:6px}
+.state{display:inline-block;padding:2px 7px;border-radius:99px;border:1px solid #c4cbd4;font-size:11px;margin-bottom:6px;background:#fff}
+.state.on{background:#e8f7ec;border-color:#9fd1ad;color:#1f6f39}
+.state.off{background:#f6eceb;border-color:#d8b5b0;color:#84433a}
+.state.unk{background:#f2f4f7;border-color:#cfd5dd;color:#596272}
+.a{display:flex;gap:6px;flex-wrap:wrap}
+.a button{padding:6px 8px;border-radius:8px;font-size:12px}
+.a .pri{background:#16324f;color:#fff;border-color:#16324f}
+.a .pri:hover{background:#234665}
+.tset{display:flex;gap:6px;align-items:center}
+.tset input{width:68px;border:1px solid #b8bec6;border-radius:8px;padding:6px}
+#msg{font-size:12px;border:1px solid #c9ced6;border-radius:8px;background:#fff;padding:8px;white-space:pre-wrap}
+.small{font-size:12px;color:#4b5563}
 </style>
 </head>
 <body>
-<h1>Controllo AlgoDomo</h1>
+<h1>Controllo Casa</h1>
 <div id="top">
 <button id="refresh">Aggiorna</button>
-<label class="muted">refresh automatico <input id="auto" type="checkbox" checked></label>
-<span class="muted" id="last"></span>
+<label class="small">auto refresh <input id="auto" type="checkbox" checked></label>
+<span class="small" id="last"></span>
 </div>
-<div id="boards"></div>
+<div id="rooms"></div>
 <pre id="msg"></pre>
 
 <script>
 const $=s=>document.querySelector(s);
-const boardsEl=$("#boards");
+const roomsEl=$("#rooms");
 const msg=$("#msg");
 const last=$("#last");
 let token="";
@@ -42,47 +52,48 @@ let running=false;
 
 function esc(v){return String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
 function sq(v){return String(v??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
-function note(t,err){msg.textContent=t;msg.style.color=err?"#a21":"#111"}
+function sid(v){return String(v??"").replace(/[^a-zA-Z0-9_-]/g,"_")}
+function note(t,err){msg.textContent=t;msg.style.color=err?"#a21":"#1b2430"}
 async function getJson(u){const r=await fetch(u,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
 
-function rowLight(ch){
-const st=ch.isOn===null?'?':(ch.isOn?'ON':'OFF');
-return '<div class="row"><span class="tag">'+esc(ch.name)+'</span><span class="muted">canale '+ch.channel+' - '+st+'</span>'+
-'<button onclick="cmdLight(\''+sq(ch.id)+'\',\'on\')">ON</button>'+
-'<button onclick="cmdLight(\''+sq(ch.id)+'\',\'off\')">OFF</button>'+
-'<button onclick="cmdLight(\''+sq(ch.id)+'\',\'toggle\')">TOGGLE</button></div>';
+function lightCard(x){
+const st=x.isOn===null?"?":(x.isOn?"ON":"OFF");
+const cls=x.isOn===null?"unk":(x.isOn?"on":"off");
+return '<div class="card"><div class="tt">'+esc(x.name)+'</div><div class="meta">'+esc(x.boardName)+' · ch '+x.channel+'</div><div class="state '+cls+'">'+st+'</div><div class="a">'+
+'<button class="pri" onclick="cmdLight(\''+sq(x.id)+'\',\'on\')">ON</button>'+
+'<button onclick="cmdLight(\''+sq(x.id)+'\',\'off\')">OFF</button>'+
+'<button onclick="cmdLight(\''+sq(x.id)+'\',\'toggle\')">TOGGLE</button></div></div>';
 }
 
-function rowShutter(ch){
-return '<div class="row"><span class="tag">'+esc(ch.name)+'</span><span class="muted">canale '+ch.channel+' - '+esc(ch.action||'unknown')+'</span>'+
-'<button onclick="cmdShutter(\''+sq(ch.id)+'\',\'up\')">SU</button>'+
-'<button onclick="cmdShutter(\''+sq(ch.id)+'\',\'down\')">GIU</button>'+
-'<button onclick="cmdShutter(\''+sq(ch.id)+'\',\'stop\')">STOP</button></div>';
+function shutterCard(x){
+return '<div class="card"><div class="tt">'+esc(x.name)+'</div><div class="meta">'+esc(x.boardName)+' · ch '+x.channel+'</div><div class="state unk">'+esc(x.action||"unknown")+'</div><div class="a">'+
+'<button class="pri" onclick="cmdShutter(\''+sq(x.id)+'\',\'up\')">SU</button>'+
+'<button onclick="cmdShutter(\''+sq(x.id)+'\',\'stop\')">STOP</button>'+
+'<button onclick="cmdShutter(\''+sq(x.id)+'\',\'down\')">GIU</button></div></div>';
 }
 
-function rowThermo(ch){
-const inputId='sp-'+sq(ch.id).replace(/[^a-zA-Z0-9_-]/g,'_');
-const temp=ch.temperature===null?'?':Number(ch.temperature).toFixed(1)+'C';
-const sp=ch.setpoint===null?'?':Number(ch.setpoint).toFixed(1)+'C';
-return '<div class="row"><span class="tag">'+esc(ch.name)+'</span><span class="muted">canale '+ch.channel+' - T:'+temp+' SET:'+sp+'</span>'+
-'<input class="temp" id="'+inputId+'" type="number" step="0.1" value="'+esc(ch.setpoint??21)+'">'+
-'<button onclick="cmdThermo(\''+sq(ch.id)+'\',\''+inputId+'\')">SET</button></div>';
+function thermoCard(x){
+const id='sp-'+sid(x.id);
+const t=x.temperature===null?'?':Number(x.temperature).toFixed(1)+'C';
+const s=x.setpoint===null?'?':Number(x.setpoint).toFixed(1)+'C';
+return '<div class="card"><div class="tt">'+esc(x.name)+'</div><div class="meta">'+esc(x.boardName)+' · ch '+x.channel+'</div><div class="state unk">T '+t+' · SET '+s+'</div><div class="tset">'+
+'<input id="'+id+'" type="number" step="0.1" value="'+esc(x.setpoint??21)+'">'+
+'<button class="pri" onclick="cmdThermo(\''+sq(x.id)+'\',\''+id+'\')">SET</button></div></div>';
 }
 
-function boardHtml(b){
-let rows='';
-for(const ch of (b.channels||[])){
-if(b.kind==='light')rows+=rowLight(ch);
-else if(b.kind==='shutter')rows+=rowShutter(ch);
-else rows+=rowThermo(ch);
-}
-return '<div class="board"><h2>'+esc(b.name)+' <span class="muted">['+esc(b.kind)+'] addr '+b.address+'</span></h2>'+rows+'</div>';
+function roomBlock(r){
+let cards='';
+for(const x of (r.lights||[]))cards+=lightCard(x);
+for(const x of (r.shutters||[]))cards+=shutterCard(x);
+for(const x of (r.thermostats||[]))cards+=thermoCard(x);
+if(!cards)cards='<div class="small">Nessuna entita</div>';
+return '<section class="room"><h2>'+esc(r.name)+'</h2><div class="grid">'+cards+'</div></section>';
 }
 
 function render(data){
-const boards=data.boards||[];
-if(!boards.length){boardsEl.innerHTML='<div class="board">Nessuna scheda configurata.</div>';return}
-boardsEl.innerHTML=boards.map(boardHtml).join('');
+const rooms=data.rooms||[];
+if(!rooms.length){roomsEl.innerHTML='<section class="room"><div class="small">Nessuna stanza configurata</div></section>';return}
+roomsEl.innerHTML=rooms.map(roomBlock).join('');
 last.textContent='ultimo update: '+new Date(data.updatedAt||Date.now()).toLocaleTimeString();
 if((data.refreshErrors||[]).length){note('Errori polling: '+data.refreshErrors.map(e=>e.address+':'+e.error).join(' | '),true)}
 }
