@@ -23,6 +23,10 @@ fi
 ENDPOINT="${PANGOLIN_ENDPOINT:-${NEWT_ENDPOINT:-}}"
 
 if [[ "${NEWT_ENABLED:-0}" != "1" || -z "${NEWT_ID:-}" || -z "${NEWT_SECRET:-}" || -z "${ENDPOINT:-}" ]]; then
+  if systemctl is-active --quiet newt.service; then
+    systemctl stop newt.service
+    echo "watchdog: newt disabilitato/non configurato, stop servizio"
+  fi
   rm -f "${OFFLINE_MARKER}" >/dev/null 2>&1 || true
   exit 0
 fi

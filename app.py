@@ -192,7 +192,9 @@ def bootstrap() -> None:
         STATE = normalize_state(read_json(STATE_PATH, default_state()))
 
     try:
-        sync_newt_env(get_config())
+        cfg = get_config()
+        sync_newt_env(cfg)
+        sync_newt_runtime_state(cfg)
     except Exception as exc:  # noqa: BLE001
         print("[warn] impossibile inizializzare env newt:", exc)
 
@@ -204,12 +206,14 @@ def get_config() -> dict[str, Any]:
 
 def set_config(new_config: dict[str, Any]) -> dict[str, Any]:
     global CONFIG
+    previous = get_config()
     normalized = normalize_config(new_config)
     with LOCK:
         CONFIG = normalized
     write_json_atomic(CONFIG_PATH, normalized)
     try:
         sync_newt_env(normalized)
+        sync_newt_runtime_state(normalized, previous)
     except Exception as exc:  # noqa: BLE001
         print("[warn] impossibile aggiornare env newt:", exc)
     return copy.deepcopy(normalized)
@@ -440,6 +444,45 @@ def sync_newt_env(cfg: dict[str, Any]) -> None:
         f'NEWT_ENDPOINT="{env_escape(endpoint)}"',
     ]
     write_text_atomic(NEWT_ENV_PATH, "\n".join(lines) + "\n")
+
+
+def newt_runtime_payload(cfg: dict[str, Any]) -> dict[str, Any]:
+    newt = as_dict(cfg.get("newt"))
+    return {
+        "enabled": bool_value(newt.get("enabled")),
+        "id": normalize_text(newt.get("id"), ""),
+        "secret": normalize_text(newt.get("secret"), ""),
+        "endpoint": normalize_text(newt.get("endpoint"), ""),
+    }
+
+
+def newt_should_run(cfg: dict[str, Any]) -> bool:
+    payload = newt_runtime_payload(cfg)
+    return bool(payload["enabled"] and payload["id"] and payload["secret"] and payload["endpoint"])
+
+
+def sync_newt_runtime_state(current_cfg: dict[str, Any], previous_cfg: dict[str, Any] | None = None) -> None:
+    should_run = newt_should_run(current_cfg)
+    status = service_status("newt.service")
+    is_active = status in {"active", "activating", "reloading"}
+
+    newt_changed = False
+    if previous_cfg is not None:
+        newt_changed = newt_runtime_payload(previous_cfg) != newt_runtime_payload(current_cfg)
+
+    if should_run:
+        if newt_changed or not is_active:
+            try:
+                run_admin_action("restart-newt")
+            except Exception as exc:  # noqa: BLE001
+                print("[warn] impossibile riavviare newt:", exc)
+        return
+
+    if is_active:
+        try:
+            run_admin_action("stop-newt")
+        except Exception as exc:  # noqa: BLE001
+            print("[warn] impossibile fermare newt:", exc)
 
 
 def run_cmd(args: list[str], timeout_s: int = 20) -> dict[str, Any]:

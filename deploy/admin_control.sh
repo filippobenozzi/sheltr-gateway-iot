@@ -12,6 +12,10 @@ case "${ACTION}" in
     systemctl restart --no-block newt.service
     echo "Restart richiesto: newt.service"
     ;;
+  stop-newt)
+    systemctl stop --no-block newt.service
+    echo "Stop richiesto: newt.service"
+    ;;
   apply-network)
     MODE="${2:-}"
     SSID="${3:-}"
