@@ -153,6 +153,12 @@ def default_config() -> dict[str, Any]:
         },
         "network": {
             "mode": "ethernet",
+            "ip": {
+                "method": "dhcp",
+                "address": "",
+                "prefix": 24,
+                "gateway": "",
+            },
             "wifi": {
                 "ssid": "",
                 "password": "",
@@ -421,6 +427,7 @@ def normalize_config(raw: Any) -> dict[str, Any]:
     newt_raw = as_dict(raw.get("newt"))
     mqtt_raw = as_dict(raw.get("mqtt"))
     network_raw = as_dict(raw.get("network"))
+    ip_raw = as_dict(network_raw.get("ip"))
     wifi_raw = as_dict(network_raw.get("wifi"))
     boards_raw = as_list(raw.get("boards"))
 
@@ -463,6 +470,14 @@ def normalize_config(raw: Any) -> dict[str, Any]:
         },
         "network": {
             "mode": "wifi" if normalize_text(network_raw.get("mode"), "ethernet").lower() == "wifi" else "ethernet",
+            "ip": {
+                "method": "static"
+                if normalize_text(ip_raw.get("method"), defaults["network"]["ip"]["method"]).lower() == "static"
+                else "dhcp",
+                "address": normalize_text(ip_raw.get("address"), ""),
+                "prefix": clamp_int(to_number(ip_raw.get("prefix"), defaults["network"]["ip"]["prefix"]), 1, 32),
+                "gateway": normalize_text(ip_raw.get("gateway"), ""),
+            },
             "wifi": {
                 "ssid": normalize_text(wifi_raw.get("ssid"), ""),
                 "password": normalize_text(wifi_raw.get("password"), ""),
@@ -1636,16 +1651,27 @@ def api_admin_apply_network() -> dict[str, Any]:
     cfg = get_config()
     network = as_dict(cfg.get("network"))
     mode = "wifi" if normalize_text(network.get("mode"), "ethernet").lower() == "wifi" else "ethernet"
+    ip_cfg = as_dict(network.get("ip"))
+    ip_method = "static" if normalize_text(ip_cfg.get("method"), "dhcp").lower() == "static" else "dhcp"
+    ip_address = normalize_text(ip_cfg.get("address"), "")
+    ip_prefix = clamp_int(to_number(ip_cfg.get("prefix"), 24), 1, 32)
+    ip_gateway = normalize_text(ip_cfg.get("gateway"), "")
+    if ip_method == "static" and not ip_address:
+        raise ValueError("IP statico configurato ma indirizzo IP mancante")
     wifi = as_dict(network.get("wifi"))
     ssid = normalize_text(wifi.get("ssid"), "")
     password = normalize_text(wifi.get("password"), "")
 
-    run_admin_action("apply-network", [mode, ssid, password])
+    run_admin_action(
+        "apply-network",
+        [mode, ssid, password, ip_method, ip_address, str(ip_prefix), ip_gateway],
+    )
     return {
         "ok": True,
         "mode": mode,
+        "ipMethod": ip_method,
         "system": system_info(),
-        "message": f"Configurazione rete applicata ({mode})",
+        "message": f"Configurazione rete applicata ({mode}, {ip_method})",
     }
 
 

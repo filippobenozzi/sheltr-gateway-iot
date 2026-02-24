@@ -34,7 +34,11 @@ case "${ACTION}" in
     MODE="${2:-}"
     SSID="${3:-}"
     PASS="${4:-}"
-    /usr/local/lib/algodomoiot-admin/apply_network.sh "${MODE}" "${SSID}" "${PASS}"
+    IP_MODE="${5:-dhcp}"
+    IP_ADDR="${6:-}"
+    IP_PREFIX="${7:-24}"
+    IP_GATEWAY="${8:-}"
+    /usr/local/lib/algodomoiot-admin/apply_network.sh "${MODE}" "${SSID}" "${PASS}" "${IP_MODE}" "${IP_ADDR}" "${IP_PREFIX}" "${IP_GATEWAY}"
     ;;
   *)
     echo "Azione non valida" >&2

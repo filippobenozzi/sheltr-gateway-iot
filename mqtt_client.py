@@ -245,7 +245,7 @@ class AlgoDomoMqttBridge:
             self._publish(
                 f"{self.discovery_prefix}/button/{poll_suffix}/config",
                 {
-                    "name": f"{board['name']} Poll",
+                    "name": f"{board['name']} Polling",
                     "unique_id": poll_suffix,
                     "command_topic": f"{topic_prefix}/poll/set",
                     "payload_press": "POLL",
@@ -259,8 +259,9 @@ class AlgoDomoMqttBridge:
                 suffix = f"algodomoiot_{board['slug']}_ch{channel}"
                 name = f"{board['name']} CH{channel}"
                 if board["kind"] == "light":
+                    self._publish(f"{self.discovery_prefix}/switch/{suffix}/config", "", retain=True)
                     self._publish(
-                        f"{self.discovery_prefix}/switch/{suffix}/config",
+                        f"{self.discovery_prefix}/light/{suffix}/config",
                         {
                             "name": name,
                             "unique_id": suffix,
@@ -349,7 +350,7 @@ class AlgoDomoMqttBridge:
         bridge_device = self._bridge_device_payload()
         bridge_availability = self._bridge_status_topic()
         bridge_buttons = [
-            ("poll_all", "Poll tutte le schede", f"{self.base_topic}/poll_all/set", "POLL"),
+            ("poll_all", "Polling tutte le schede", f"{self.base_topic}/poll_all/set", "POLL"),
             ("restart_mqtt", "Riavvia servizio MQTT", f"{self.base_topic}/service/restart/mqtt/set", "RESTART"),
             ("restart_all", "Riavvia tutti i servizi", f"{self.base_topic}/service/restart/all/set", "RESTART"),
         ]
@@ -516,14 +517,16 @@ class AlgoDomoMqttBridge:
                 return
             if tail == "mode/set":
                 if text in {"OFF", "0", "FALSE", "SPENTO"}:
-                    self._api_get("/api/cmd/thermostat", {"id": entity_id, "power": "off"})
+                    self._api_get("/api/cmd/thermostat", {"id": entity_id, "mode": "winter", "set": "5"})
                     return
                 mode = "summer" if text in {"SUMMER", "COOL", "ESTATE"} else "winter"
                 self._api_get("/api/cmd/thermostat", {"id": entity_id, "mode": mode, "power": "on"})
                 return
             if tail == "power/set":
-                power = "on" if text in {"ON", "1", "TRUE"} else "off"
-                self._api_get("/api/cmd/thermostat", {"id": entity_id, "power": power})
+                if text in {"ON", "1", "TRUE"}:
+                    self._api_get("/api/cmd/thermostat", {"id": entity_id, "power": "on"})
+                else:
+                    self._api_get("/api/cmd/thermostat", {"id": entity_id, "mode": "winter", "set": "5"})
 
     def _on_message(self, client, userdata, msg):  # noqa: ANN001
         topic = str(getattr(msg, "topic", "") or "")
