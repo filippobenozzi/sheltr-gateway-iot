@@ -105,6 +105,7 @@ def make_board(board_id: str, name: str, address: int, kind: str, start: int, en
         "name": name,
         "address": address,
         "kind": kind,
+        "mqttPublish": True,
         "channelStart": start,
         "channelEnd": end,
         "channels": channels,
@@ -369,6 +370,10 @@ def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
     kind_raw = normalize_text(board.get("kind"), "light").lower()
     kind = kind_raw if kind_raw in ALLOWED_KINDS else "light"
     max_channel = MAX_CHANNEL_BY_KIND[kind]
+    mqtt_publish_raw = board.get("mqttPublish")
+    if mqtt_publish_raw is None and "publish_enabled" in board:
+        mqtt_publish_raw = board.get("publish_enabled")
+    mqtt_publish = True if mqtt_publish_raw is None else bool_value(mqtt_publish_raw)
 
     start = clamp_int(to_number(board.get("channelStart"), 1), 1, max_channel)
     end = clamp_int(to_number(board.get("channelEnd"), max_channel), 1, max_channel)
@@ -400,6 +405,7 @@ def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
         "name": name,
         "address": address,
         "kind": kind,
+        "mqttPublish": mqtt_publish,
         "channelStart": start,
         "channelEnd": end,
         "channels": channels,
