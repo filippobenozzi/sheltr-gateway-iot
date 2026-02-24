@@ -287,6 +287,7 @@ class AlgoDomoMqttBridge:
                             "payload_close": "CLOSE",
                             "payload_stop": "STOP",
                             "assumed_state": True,
+                            "optimistic": True,
                             "state_open": "OPEN",
                             "state_opening": "OPENING",
                             "state_closed": "CLOSED",
