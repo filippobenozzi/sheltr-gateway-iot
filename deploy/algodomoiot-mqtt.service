@@ -1,0 +1,18 @@
+[Unit]
+Description=AlgoDomo MQTT Bridge
+After=network-online.target algodomoiot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=algodomoiot
+Group=algodomoiot
+WorkingDirectory=/opt/algodomoiot
+EnvironmentFile=-/etc/algodomoiot/mqtt.env
+ExecCondition=/bin/sh -c '[ "${MQTT_ENABLED:-0}" = "1" ] && [ -n "${MQTT_HOST:-}" ] && [ -n "${MQTT_BASE_TOPIC:-}" ] && [ -n "${ALGODOMO_TOKEN:-}" ]'
+ExecStart=/usr/bin/python3 /opt/algodomoiot/mqtt_client.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

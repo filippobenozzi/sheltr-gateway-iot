@@ -12,9 +12,17 @@ case "${ACTION}" in
     systemctl restart --no-block newt.service
     echo "Restart richiesto: newt.service"
     ;;
+  restart-mqtt)
+    systemctl restart --no-block algodomoiot-mqtt.service
+    echo "Restart richiesto: algodomoiot-mqtt.service"
+    ;;
   stop-newt)
     systemctl stop --no-block newt.service
     echo "Stop richiesto: newt.service"
+    ;;
+  stop-mqtt)
+    systemctl stop --no-block algodomoiot-mqtt.service
+    echo "Stop richiesto: algodomoiot-mqtt.service"
     ;;
   apply-network)
     MODE="${2:-}"

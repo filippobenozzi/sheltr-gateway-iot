@@ -8,10 +8,12 @@ INSTALL_DIR="/opt/${APP_NAME}"
 CONFIG_DIR="/etc/${APP_NAME}"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
 NEWT_SERVICE_FILE="/etc/systemd/system/newt.service"
+MQTT_SERVICE_FILE="/etc/systemd/system/algodomoiot-mqtt.service"
 NEWT_WATCHDOG_SERVICE_FILE="/etc/systemd/system/newt-watchdog.service"
 NEWT_WATCHDOG_TIMER_FILE="/etc/systemd/system/newt-watchdog.timer"
 ENV_FILE="/etc/default/${APP_NAME}"
 NEWT_ENV_FILE="${CONFIG_DIR}/newt.env"
+MQTT_ENV_FILE="${CONFIG_DIR}/mqtt.env"
 ADMIN_DIR="/usr/local/lib/algodomoiot-admin"
 NEWT_WATCHDOG_SCRIPT="${ADMIN_DIR}/newt_watchdog.sh"
 STACK_CONTROL_BIN="/usr/local/bin/algodomoiot-stack"
@@ -43,6 +45,11 @@ fi
 if ! command -v sudo >/dev/null 2>&1; then
   apt-get update
   apt-get install -y sudo
+fi
+
+if ! python3 -c "import paho.mqtt.client" >/dev/null 2>&1; then
+  apt-get update
+  apt-get install -y python3-paho-mqtt
 fi
 
 if ! id -u "${APP_USER}" >/dev/null 2>&1; then
@@ -113,8 +120,13 @@ if [[ ! -f "${NEWT_ENV_FILE}" ]]; then
   fi
 fi
 
+if [[ ! -f "${MQTT_ENV_FILE}" ]]; then
+  cp "${INSTALL_DIR}/deploy/mqtt.env" "${MQTT_ENV_FILE}"
+fi
+
 install -m 644 "${INSTALL_DIR}/deploy/algodomoiot.service" "${SERVICE_FILE}"
 install -m 644 "${INSTALL_DIR}/deploy/newt.service" "${NEWT_SERVICE_FILE}"
+install -m 644 "${INSTALL_DIR}/deploy/algodomoiot-mqtt.service" "${MQTT_SERVICE_FILE}"
 install -m 644 "${INSTALL_DIR}/deploy/newt-watchdog.service" "${NEWT_WATCHDOG_SERVICE_FILE}"
 install -m 644 "${INSTALL_DIR}/deploy/newt-watchdog.timer" "${NEWT_WATCHDOG_TIMER_FILE}"
 install -m 750 "${INSTALL_DIR}/deploy/admin_control.sh" "${ADMIN_DIR}/admin_control.sh"
@@ -133,8 +145,9 @@ chmod 750 "${ADMIN_DIR}/admin_control.sh" "${ADMIN_DIR}/apply_network.sh" "${NEW
 chmod 440 "${SUDOERS_FILE}"
 chmod 750 "${INSTALL_DIR}" "${CONFIG_DIR}"
 chmod 640 "${CONFIG_DIR}/config.json" "${CONFIG_DIR}/state.json"
-chmod 644 "${ENV_FILE}" "${SERVICE_FILE}" "${NEWT_SERVICE_FILE}" "${NEWT_WATCHDOG_SERVICE_FILE}" "${NEWT_WATCHDOG_TIMER_FILE}"
+chmod 644 "${ENV_FILE}" "${SERVICE_FILE}" "${NEWT_SERVICE_FILE}" "${MQTT_SERVICE_FILE}" "${NEWT_WATCHDOG_SERVICE_FILE}" "${NEWT_WATCHDOG_TIMER_FILE}"
 chmod 640 "${NEWT_ENV_FILE}"
+chmod 640 "${MQTT_ENV_FILE}"
 
 if command -v visudo >/dev/null 2>&1; then
   visudo -cf "${SUDOERS_FILE}"
@@ -143,6 +156,7 @@ fi
 systemctl daemon-reload
 systemctl enable --now "${APP_NAME}.service"
 systemctl enable newt.service
+systemctl enable algodomoiot-mqtt.service
 systemctl enable --now newt-watchdog.timer
 systemctl restart "${APP_NAME}.service"
 
@@ -155,10 +169,21 @@ else
   systemctl stop newt.service >/dev/null 2>&1 || true
 fi
 
+if grep -q '^MQTT_ENABLED=1' "${MQTT_ENV_FILE}" \
+  && grep -q '^MQTT_HOST="[^"]\\+"' "${MQTT_ENV_FILE}" \
+  && grep -q '^MQTT_BASE_TOPIC="[^"]\\+"' "${MQTT_ENV_FILE}" \
+  && grep -q '^ALGODOMO_TOKEN="[^"]\\+"' "${MQTT_ENV_FILE}"; then
+  systemctl restart algodomoiot-mqtt.service || true
+else
+  systemctl stop algodomoiot-mqtt.service >/dev/null 2>&1 || true
+fi
+
 echo
 systemctl --no-pager --full status "${APP_NAME}.service" || true
 echo
 systemctl --no-pager --full status newt.service || true
+echo
+systemctl --no-pager --full status algodomoiot-mqtt.service || true
 echo
 systemctl --no-pager --full status newt-watchdog.timer || true
 
@@ -167,6 +192,7 @@ echo "Installazione completata."
 echo "Config: ${CONFIG_DIR}/config.json"
 echo "Override env: ${ENV_FILE}"
 echo "Config newt: ${NEWT_ENV_FILE}"
+echo "Config mqtt: ${MQTT_ENV_FILE}"
 echo "Pagine: http://<IP_RASPBERRY>/ (control) e /config"
 echo "Gestione rapida: sudo algodomoiot-stack enable-all | disable-all | status"
 

@@ -7,6 +7,7 @@ Applicazione Python leggera con:
 - API `GET` autenticate da token (in query)
 - invio comandi via seriale (`/dev/ttyS0` di default, 9600 8N1)
 - integrazione `newt` (configurabile da UI + service systemd)
+- client MQTT verso Home Assistant (configurabile da UI + service systemd)
 - gestione rete Raspberry (wifi/ethernet da UI)
 
 Tutti i dati vengono salvati in JSON locale.
@@ -21,8 +22,9 @@ Da `/config` ora puoi programmare tutto senza editare JSON manualmente:
 - range canali
 - nome e stanza di ogni canale
 - parametri `newt` (`enabled`, `id`, `secret`, `endpoint`)
+- parametri `mqtt` (`enabled`, broker, topic, discovery, polling, auth)
 - rete Raspberry (`mode` ethernet/wifi + credenziali wifi)
-- pulsanti di manutenzione: restart servizio, restart newt, applica rete
+- pulsanti di manutenzione: restart servizio, restart newt, restart mqtt, applica rete
 
 ## Formato configurazione (salvato in JSON)
 
@@ -90,7 +92,7 @@ Server default: `http://localhost`
 - Info sistema:
   - `GET /api/system/info?token=...`
 - Admin:
-  - `GET /api/admin/restart?token=...&service=app|newt`
+  - `GET /api/admin/restart?token=...&service=app|newt|mqtt`
   - `GET /api/admin/apply-network?token=...`
 
 ## Installazione Raspberry Pi + systemd
@@ -99,8 +101,10 @@ File inclusi:
 
 - service: `deploy/algodomoiot.service`
 - service newt: `deploy/newt.service`
+- service mqtt: `deploy/algodomoiot-mqtt.service`
 - env: `deploy/algodomoiot.env`
 - env newt: `deploy/newt.env`
+- env mqtt: `deploy/mqtt.env`
 - installer: `install_raspberry.sh`
 
 Installazione:
@@ -116,6 +120,7 @@ L'installer:
 - crea JSON in `/etc/algodomoiot`
 - abilita/avvia `algodomoiot.service`
 - installa/abilita `newt.service` (avvio effettivo quando `NEWT_ENABLED=1` e credenziali presenti)
+- installa/abilita `algodomoiot-mqtt.service` (avvio effettivo quando `MQTT_ENABLED=1` e parametri validi)
 - aggiunge utente servizio al gruppo `dialout` (se presente)
 - disabilita e mette in `mask` `serial-getty@ttyS0.service` e `serial-getty@serial0.service`
 - rimuove la console seriale da `cmdline.txt` (con backup automatico)

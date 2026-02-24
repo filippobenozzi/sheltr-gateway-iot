@@ -12,6 +12,20 @@
     "secret": "",
     "endpoint": "https://app.pangolin.net"
   },
+  "mqtt": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 1883,
+    "username": "",
+    "password": "",
+    "clientId": "algodomoiot",
+    "baseTopic": "algodomoiot",
+    "discoveryPrefix": "homeassistant",
+    "keepalive": 60,
+    "pollIntervalSec": 30,
+    "qos": 0,
+    "retain": true
+  },
   "network": {
     "mode": "ethernet",
     "wifi": {

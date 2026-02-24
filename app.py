@@ -70,6 +70,7 @@ DEFAULT_STATE_PATH = DATA_DIR / "state.json"
 CONFIG_PATH = Path(os.environ.get("ALGODOMO_CONFIG", str(DEFAULT_CONFIG_PATH)))
 STATE_PATH = Path(os.environ.get("ALGODOMO_STATE", str(DEFAULT_STATE_PATH)))
 NEWT_ENV_PATH = Path(os.environ.get("ALGODOMO_NEWT_ENV", "/etc/algodomoiot/newt.env"))
+MQTT_ENV_PATH = Path(os.environ.get("ALGODOMO_MQTT_ENV", "/etc/algodomoiot/mqtt.env"))
 ADMIN_CONTROL_SCRIPT = os.environ.get("ALGODOMO_ADMIN_SCRIPT", "/usr/local/lib/algodomoiot-admin/admin_control.sh")
 
 BAUD_MAP = {
@@ -134,6 +135,20 @@ def default_config() -> dict[str, Any]:
             "id": "",
             "secret": "",
             "endpoint": "https://app.pangolin.net",
+        },
+        "mqtt": {
+            "enabled": False,
+            "host": "127.0.0.1",
+            "port": 1883,
+            "username": "",
+            "password": "",
+            "clientId": "algodomoiot",
+            "baseTopic": "algodomoiot",
+            "discoveryPrefix": "homeassistant",
+            "keepalive": 60,
+            "pollIntervalSec": 30,
+            "qos": 0,
+            "retain": True,
         },
         "network": {
             "mode": "ethernet",
@@ -204,8 +219,10 @@ def bootstrap() -> None:
         cfg = get_config()
         sync_newt_env(cfg)
         sync_newt_runtime_state(cfg)
+        sync_mqtt_env(cfg)
+        sync_mqtt_runtime_state(cfg)
     except Exception as exc:  # noqa: BLE001
-        print("[warn] impossibile inizializzare env newt:", exc)
+        print("[warn] impossibile inizializzare runtime esterni:", exc)
 
 
 def get_config() -> dict[str, Any]:
@@ -223,8 +240,10 @@ def set_config(new_config: dict[str, Any]) -> dict[str, Any]:
     try:
         sync_newt_env(normalized)
         sync_newt_runtime_state(normalized, previous)
+        sync_mqtt_env(normalized)
+        sync_mqtt_runtime_state(normalized, previous)
     except Exception as exc:  # noqa: BLE001
-        print("[warn] impossibile aggiornare env newt:", exc)
+        print("[warn] impossibile aggiornare runtime esterni:", exc)
     return copy.deepcopy(normalized)
 
 
@@ -313,6 +332,11 @@ def normalize_text(value: Any, fallback: str) -> str:
     return txt or fallback
 
 
+def normalize_topic(value: Any, fallback: str) -> str:
+    topic = normalize_text(value, fallback).strip("/")
+    return topic or fallback
+
+
 def normalize_id(value: Any, fallback: str) -> str:
     raw = normalize_text(value, fallback).lower()
     cleaned = []
@@ -389,6 +413,7 @@ def normalize_config(raw: Any) -> dict[str, Any]:
 
     serial_raw = as_dict(raw.get("serial"))
     newt_raw = as_dict(raw.get("newt"))
+    mqtt_raw = as_dict(raw.get("mqtt"))
     network_raw = as_dict(raw.get("network"))
     wifi_raw = as_dict(network_raw.get("wifi"))
     boards_raw = as_list(raw.get("boards"))
@@ -413,6 +438,22 @@ def normalize_config(raw: Any) -> dict[str, Any]:
             "id": normalize_text(newt_raw.get("id"), ""),
             "secret": normalize_text(newt_raw.get("secret"), ""),
             "endpoint": normalize_text(newt_raw.get("endpoint"), defaults["newt"]["endpoint"]),
+        },
+        "mqtt": {
+            "enabled": bool_value(mqtt_raw.get("enabled")),
+            "host": normalize_text(mqtt_raw.get("host"), defaults["mqtt"]["host"]),
+            "port": to_port(mqtt_raw.get("port"), defaults["mqtt"]["port"]),
+            "username": normalize_text(mqtt_raw.get("username"), ""),
+            "password": normalize_text(mqtt_raw.get("password"), ""),
+            "clientId": normalize_text(mqtt_raw.get("clientId"), defaults["mqtt"]["clientId"]),
+            "baseTopic": normalize_topic(mqtt_raw.get("baseTopic"), defaults["mqtt"]["baseTopic"]),
+            "discoveryPrefix": normalize_topic(mqtt_raw.get("discoveryPrefix"), defaults["mqtt"]["discoveryPrefix"]),
+            "keepalive": clamp_int(to_number(mqtt_raw.get("keepalive"), defaults["mqtt"]["keepalive"]), 10, 86400),
+            "pollIntervalSec": clamp_int(
+                to_number(mqtt_raw.get("pollIntervalSec"), defaults["mqtt"]["pollIntervalSec"]), 2, 3600
+            ),
+            "qos": clamp_int(to_number(mqtt_raw.get("qos"), defaults["mqtt"]["qos"]), 0, 2),
+            "retain": bool_value(mqtt_raw.get("retain")),
         },
         "network": {
             "mode": "wifi" if normalize_text(network_raw.get("mode"), "ethernet").lower() == "wifi" else "ethernet",
@@ -493,6 +534,88 @@ def sync_newt_runtime_state(current_cfg: dict[str, Any], previous_cfg: dict[str,
             run_admin_action("stop-newt")
         except Exception as exc:  # noqa: BLE001
             print("[warn] impossibile fermare newt:", exc)
+
+
+def sync_mqtt_env(cfg: dict[str, Any]) -> None:
+    mqtt_cfg = as_dict(cfg.get("mqtt"))
+    host = normalize_text(mqtt_cfg.get("host"), "127.0.0.1")
+    port = to_port(mqtt_cfg.get("port"), 1883)
+    username = normalize_text(mqtt_cfg.get("username"), "")
+    password = normalize_text(mqtt_cfg.get("password"), "")
+    client_id = normalize_text(mqtt_cfg.get("clientId"), "algodomoiot")
+    base_topic = normalize_topic(mqtt_cfg.get("baseTopic"), "algodomoiot")
+    discovery_prefix = normalize_topic(mqtt_cfg.get("discoveryPrefix"), "homeassistant")
+    keepalive = clamp_int(to_number(mqtt_cfg.get("keepalive"), 60), 10, 86400)
+    poll_interval = clamp_int(to_number(mqtt_cfg.get("pollIntervalSec"), 30), 2, 3600)
+    qos = clamp_int(to_number(mqtt_cfg.get("qos"), 0), 0, 2)
+    retain = "1" if bool_value(mqtt_cfg.get("retain")) else "0"
+    token = normalize_text(cfg.get("apiToken"), "")
+    lines = [
+        "# File auto-generato da AlgoDomo. Modificare da /config",
+        f'MQTT_ENABLED={"1" if bool_value(mqtt_cfg.get("enabled")) else "0"}',
+        f'MQTT_HOST="{env_escape(host)}"',
+        f"MQTT_PORT={port}",
+        f'MQTT_USERNAME="{env_escape(username)}"',
+        f'MQTT_PASSWORD="{env_escape(password)}"',
+        f'MQTT_CLIENT_ID="{env_escape(client_id)}"',
+        f'MQTT_BASE_TOPIC="{env_escape(base_topic)}"',
+        f'MQTT_DISCOVERY_PREFIX="{env_escape(discovery_prefix)}"',
+        f"MQTT_KEEPALIVE={keepalive}",
+        f"MQTT_POLL_INTERVAL={poll_interval}",
+        f"MQTT_QOS={qos}",
+        f"MQTT_RETAIN={retain}",
+        'ALGODOMO_HTTP_BASE="http://127.0.0.1"',
+        f'ALGODOMO_TOKEN="{env_escape(token)}"',
+    ]
+    write_text_atomic(MQTT_ENV_PATH, "\n".join(lines) + "\n")
+
+
+def mqtt_runtime_payload(cfg: dict[str, Any]) -> dict[str, Any]:
+    mqtt_cfg = as_dict(cfg.get("mqtt"))
+    return {
+        "enabled": bool_value(mqtt_cfg.get("enabled")),
+        "host": normalize_text(mqtt_cfg.get("host"), ""),
+        "port": to_port(mqtt_cfg.get("port"), 1883),
+        "username": normalize_text(mqtt_cfg.get("username"), ""),
+        "password": normalize_text(mqtt_cfg.get("password"), ""),
+        "clientId": normalize_text(mqtt_cfg.get("clientId"), ""),
+        "baseTopic": normalize_topic(mqtt_cfg.get("baseTopic"), "algodomoiot"),
+        "discoveryPrefix": normalize_topic(mqtt_cfg.get("discoveryPrefix"), "homeassistant"),
+        "keepalive": clamp_int(to_number(mqtt_cfg.get("keepalive"), 60), 10, 86400),
+        "pollIntervalSec": clamp_int(to_number(mqtt_cfg.get("pollIntervalSec"), 30), 2, 3600),
+        "qos": clamp_int(to_number(mqtt_cfg.get("qos"), 0), 0, 2),
+        "retain": bool_value(mqtt_cfg.get("retain")),
+        "apiToken": normalize_text(cfg.get("apiToken"), ""),
+    }
+
+
+def mqtt_should_run(cfg: dict[str, Any]) -> bool:
+    payload = mqtt_runtime_payload(cfg)
+    return bool(payload["enabled"] and payload["host"] and payload["port"] and payload["baseTopic"] and payload["apiToken"])
+
+
+def sync_mqtt_runtime_state(current_cfg: dict[str, Any], previous_cfg: dict[str, Any] | None = None) -> None:
+    should_run = mqtt_should_run(current_cfg)
+    status = service_status("algodomoiot-mqtt.service")
+    is_active = status in {"active", "activating", "reloading"}
+
+    mqtt_changed = False
+    if previous_cfg is not None:
+        mqtt_changed = mqtt_runtime_payload(previous_cfg) != mqtt_runtime_payload(current_cfg)
+
+    if should_run:
+        if mqtt_changed or not is_active:
+            try:
+                run_admin_action("restart-mqtt")
+            except Exception as exc:  # noqa: BLE001
+                print("[warn] impossibile riavviare mqtt:", exc)
+        return
+
+    if is_active:
+        try:
+            run_admin_action("stop-mqtt")
+        except Exception as exc:  # noqa: BLE001
+            print("[warn] impossibile fermare mqtt:", exc)
 
 
 def run_cmd(args: list[str], timeout_s: int = 20) -> dict[str, Any]:
@@ -587,6 +710,7 @@ def system_info() -> dict[str, Any]:
         "services": {
             "app": service_status("algodomoiot.service"),
             "newt": service_status("newt.service"),
+            "mqtt": service_status("algodomoiot-mqtt.service"),
         },
     }
 
@@ -1454,6 +1578,7 @@ def api_system_info() -> dict[str, Any]:
         "system": system_info(),
         "networkConfig": as_dict(cfg.get("network")),
         "newtConfig": as_dict(cfg.get("newt")),
+        "mqttConfig": as_dict(cfg.get("mqtt")),
     }
 
 
@@ -1473,8 +1598,19 @@ def api_admin_restart(query: dict[str, list[str]]) -> dict[str, Any]:
             raise ValueError("newt non configurato: abilita NEWT e compila ID/SECRET/ENDPOINT in /config")
         action = "restart-newt"
         label = "newt.service"
+    elif service in {"mqtt", "algodomoiot-mqtt", "algodomoiot-mqtt.service"}:
+        cfg = get_config()
+        mqtt_cfg = as_dict(cfg.get("mqtt"))
+        enabled = bool_value(mqtt_cfg.get("enabled"))
+        host = normalize_text(mqtt_cfg.get("host"), "")
+        base_topic = normalize_topic(mqtt_cfg.get("baseTopic"), "algodomoiot")
+        token = normalize_text(cfg.get("apiToken"), "")
+        if not enabled or not host or not base_topic or not token:
+            raise ValueError("mqtt non configurato: abilita MQTT e compila host/base topic/token in /config")
+        action = "restart-mqtt"
+        label = "algodomoiot-mqtt.service"
     else:
-        raise ValueError("service non valido: usa app o newt")
+        raise ValueError("service non valido: usa app, newt o mqtt")
 
     run_admin_action(action)
     return {

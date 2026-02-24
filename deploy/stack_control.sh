@@ -4,11 +4,13 @@ set -euo pipefail
 APP_NAME="algodomoiot"
 APP_SERVICE="${APP_NAME}.service"
 NEWT_SERVICE="newt.service"
+MQTT_SERVICE="algodomoiot-mqtt.service"
 WATCHDOG_SERVICE="newt-watchdog.service"
 WATCHDOG_TIMER="newt-watchdog.timer"
 SYSTEMD_DIR="/etc/systemd/system"
 ADMIN_DIR="/usr/local/lib/algodomoiot-admin"
 NEWT_ENV_FILE="/etc/${APP_NAME}/newt.env"
+MQTT_ENV_FILE="/etc/${APP_NAME}/mqtt.env"
 DEPLOY_DIR="${ALGODOMO_DEPLOY_DIR:-/opt/${APP_NAME}/deploy}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,11 +33,13 @@ ensure_deploy_files() {
   local required=(
     "algodomoiot.service"
     "newt.service"
+    "algodomoiot-mqtt.service"
     "newt-watchdog.service"
     "newt-watchdog.timer"
     "admin_control.sh"
     "apply_network.sh"
     "newt_watchdog.sh"
+    "mqtt.env"
   )
   local item
   for item in "${required[@]}"; do
@@ -59,12 +63,21 @@ install_runtime_files() {
   mkdir -p "${ADMIN_DIR}"
   install -m 644 "${DEPLOY_DIR}/algodomoiot.service" "${SYSTEMD_DIR}/${APP_SERVICE}"
   install -m 644 "${DEPLOY_DIR}/newt.service" "${SYSTEMD_DIR}/${NEWT_SERVICE}"
+  install -m 644 "${DEPLOY_DIR}/algodomoiot-mqtt.service" "${SYSTEMD_DIR}/${MQTT_SERVICE}"
   install -m 644 "${DEPLOY_DIR}/newt-watchdog.service" "${SYSTEMD_DIR}/${WATCHDOG_SERVICE}"
   install -m 644 "${DEPLOY_DIR}/newt-watchdog.timer" "${SYSTEMD_DIR}/${WATCHDOG_TIMER}"
   install -m 750 "${DEPLOY_DIR}/admin_control.sh" "${ADMIN_DIR}/admin_control.sh"
   install -m 750 "${DEPLOY_DIR}/apply_network.sh" "${ADMIN_DIR}/apply_network.sh"
   install -m 750 "${DEPLOY_DIR}/newt_watchdog.sh" "${ADMIN_DIR}/newt_watchdog.sh"
   chown root:root "${ADMIN_DIR}/admin_control.sh" "${ADMIN_DIR}/apply_network.sh" "${ADMIN_DIR}/newt_watchdog.sh"
+}
+
+is_mqtt_configured() {
+  [[ -f "${MQTT_ENV_FILE}" ]] || return 1
+  grep -q '^MQTT_ENABLED=1' "${MQTT_ENV_FILE}" \
+    && grep -q '^MQTT_HOST="[^"]\+"' "${MQTT_ENV_FILE}" \
+    && grep -q '^MQTT_BASE_TOPIC="[^"]\+"' "${MQTT_ENV_FILE}" \
+    && grep -q '^ALGODOMO_TOKEN="[^"]\+"' "${MQTT_ENV_FILE}"
 }
 
 lock_serial_for_app() {
@@ -84,6 +97,8 @@ print_status() {
   echo
   systemctl --no-pager --full status "${NEWT_SERVICE}" || true
   echo
+  systemctl --no-pager --full status "${MQTT_SERVICE}" || true
+  echo
   systemctl --no-pager --full status "${WATCHDOG_TIMER}" || true
 }
 
@@ -93,11 +108,17 @@ enable_all() {
   systemctl daemon-reload
   systemctl enable --now "${APP_SERVICE}"
   systemctl enable "${NEWT_SERVICE}"
+  systemctl enable "${MQTT_SERVICE}"
   systemctl enable --now "${WATCHDOG_TIMER}"
   if is_newt_configured; then
     systemctl restart "${NEWT_SERVICE}" || true
   else
     systemctl stop "${NEWT_SERVICE}" >/dev/null 2>&1 || true
+  fi
+  if is_mqtt_configured; then
+    systemctl restart "${MQTT_SERVICE}" || true
+  else
+    systemctl stop "${MQTT_SERVICE}" >/dev/null 2>&1 || true
   fi
   echo "Attivazione completata."
   print_status
@@ -106,9 +127,10 @@ enable_all() {
 disable_all() {
   systemctl disable --now "${WATCHDOG_TIMER}" >/dev/null 2>&1 || true
   systemctl stop "${WATCHDOG_SERVICE}" >/dev/null 2>&1 || true
+  systemctl disable --now "${MQTT_SERVICE}" >/dev/null 2>&1 || true
   systemctl disable --now "${NEWT_SERVICE}" >/dev/null 2>&1 || true
   systemctl disable --now "${APP_SERVICE}" >/dev/null 2>&1 || true
-  echo "Disattivazione completata (app/newt/watchdog)."
+  echo "Disattivazione completata (app/newt/mqtt/watchdog)."
   print_status
 }
 
@@ -120,8 +142,8 @@ Uso:
   sudo ./deploy/stack_control.sh status
 
 Comandi:
-  enable-all   Installa/aggiorna unit e script, abilita e avvia app + watchdog (+newt se configurato)
-  disable-all  Disabilita e ferma in blocco app + newt + watchdog
+  enable-all   Installa/aggiorna unit e script, abilita e avvia app + watchdog (+newt/mqtt se configurati)
+  disable-all  Disabilita e ferma in blocco app + newt + mqtt + watchdog
   status       Mostra stato attuale dei servizi
 EOF
 }

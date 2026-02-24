@@ -34,6 +34,24 @@
 </div>
 <div class="box">
 <div class="row">
+<label><span>MQTT abilitato</span><input id="mqttEnabled" type="checkbox"></label>
+<label>MQTT Host<input id="mqttHost" placeholder="127.0.0.1"></label>
+<label>MQTT Porta<input id="mqttPort" type="number" min="1" max="65535" value="1883"></label>
+<label>MQTT Username<input id="mqttUser" placeholder="username"></label>
+<label>MQTT Password<input id="mqttPass" type="password" placeholder="password"></label>
+</div>
+<div class="row">
+<label>MQTT Client ID<input id="mqttClientId" placeholder="algodomoiot"></label>
+<label>MQTT Base Topic<input id="mqttBaseTopic" placeholder="algodomoiot"></label>
+<label>MQTT Discovery Prefix<input id="mqttDiscoveryPrefix" placeholder="homeassistant"></label>
+<label>MQTT Keepalive<input id="mqttKeepalive" type="number" min="10" max="86400" value="60"></label>
+<label>MQTT Poll sec<input id="mqttPollInterval" type="number" min="2" max="3600" value="30"></label>
+<label>MQTT QoS<input id="mqttQos" type="number" min="0" max="2" value="0"></label>
+<label><span>MQTT Retain</span><input id="mqttRetain" type="checkbox" checked></label>
+</div>
+</div>
+<div class="box">
+<div class="row">
 <label>Connessione<select id="netMode"><option value="ethernet">Ethernet</option><option value="wifi">WiFi</option></select></label>
 <label id="wifiSsidWrap">WiFi SSID<input id="wifiSsid" placeholder="nome rete"></label>
 <label id="wifiPassWrap">WiFi Password<input id="wifiPass" type="password" placeholder="password"></label>
@@ -47,6 +65,7 @@
 <button id="save">Salva</button>
 <button id="restartApp">Riavvia servizio</button>
 <button id="restartNewt">Riavvia newt</button>
+<button id="restartMqtt">Riavvia mqtt</button>
 </div>
 </div>
 <div class="box apidoc">
@@ -63,7 +82,7 @@
 /api/cmd/thermostat?token=...&amp;id=&lt;board-id&gt;-c&lt;canale&gt;&amp;power=on|off
 /api/cmd/program-address?token=...&amp;address=1
 /api/system/info?token=...
-/api/admin/restart?token=...&amp;service=app|newt
+/api/admin/restart?token=...&amp;service=app|newt|mqtt
 /api/admin/apply-network?token=...
 
 Configurazione (senza token):
@@ -74,7 +93,7 @@ POST /api/config</pre>
 <footer class="foot">not all those who wander are lost ~ <a href="https://filippo.im" target="_blank" rel="noopener">filippo.im</a></footer>
 <script>
 const $=s=>document.querySelector(s),msg=$("#msg"),boardsEl=$("#boards"),sysEl=$("#sys"),imp=$("#importFile");
-const f={serialPort:$("#serialPort"),baudrate:$("#baudrate"),timeout:$("#timeout"),displayName:$("#displayName"),token:$("#token"),newAddr:$("#newAddr"),newtEnabled:$("#newtEnabled"),newtId:$("#newtId"),newtSecret:$("#newtSecret"),newtEndpoint:$("#newtEndpoint"),netMode:$("#netMode"),wifiSsid:$("#wifiSsid"),wifiPass:$("#wifiPass"),wifiSsidWrap:$("#wifiSsidWrap"),wifiPassWrap:$("#wifiPassWrap")};
+const f={serialPort:$("#serialPort"),baudrate:$("#baudrate"),timeout:$("#timeout"),displayName:$("#displayName"),token:$("#token"),newAddr:$("#newAddr"),newtEnabled:$("#newtEnabled"),newtId:$("#newtId"),newtSecret:$("#newtSecret"),newtEndpoint:$("#newtEndpoint"),mqttEnabled:$("#mqttEnabled"),mqttHost:$("#mqttHost"),mqttPort:$("#mqttPort"),mqttUser:$("#mqttUser"),mqttPass:$("#mqttPass"),mqttClientId:$("#mqttClientId"),mqttBaseTopic:$("#mqttBaseTopic"),mqttDiscoveryPrefix:$("#mqttDiscoveryPrefix"),mqttKeepalive:$("#mqttKeepalive"),mqttPollInterval:$("#mqttPollInterval"),mqttQos:$("#mqttQos"),mqttRetain:$("#mqttRetain"),netMode:$("#netMode"),wifiSsid:$("#wifiSsid"),wifiPass:$("#wifiPass"),wifiSsidWrap:$("#wifiSsidWrap"),wifiPassWrap:$("#wifiPassWrap")};
 const S={boards:[]};
 const esc=v=>String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
 const nint=(v,d)=>{const n=Number(v);return Number.isFinite(n)?Math.trunc(n):d};
@@ -99,10 +118,10 @@ window.setBend=(i,v)=>{S.boards[i].channelEnd=nint(v,S.boards[i].channelEnd);S.b
 window.setChName=(bi,ci,v)=>{S.boards[bi].channels[ci].name=String(v||"").trim()||defName(S.boards[bi].kind,S.boards[bi].channels[ci].channel)};
 window.setChRoom=(bi,ci,v)=>{S.boards[bi].channels[ci].room=String(v||"").trim()||"Senza stanza"};
 function toggleWifi(){const w=f.netMode.value==="wifi";f.wifiSsidWrap.classList.toggle("hidden",!w);f.wifiPassWrap.classList.toggle("hidden",!w)}
-function payload(){S.boards=nbs(S.boards);return{serial:{port:f.serialPort.value.trim(),baudrate:nint(f.baudrate.value,9600),timeoutMs:nint(f.timeout.value,1200)},displayName:f.displayName.value.trim()||"Controllo Casa",apiToken:f.token.value.trim(),newt:{enabled:!!f.newtEnabled.checked,id:f.newtId.value.trim(),secret:f.newtSecret.value,endpoint:f.newtEndpoint.value.trim()||"https://app.pangolin.net"},network:{mode:f.netMode.value==="wifi"?"wifi":"ethernet",wifi:{ssid:f.wifiSsid.value.trim(),password:f.wifiPass.value}},boards:S.boards}}
+function payload(){S.boards=nbs(S.boards);return{serial:{port:f.serialPort.value.trim(),baudrate:nint(f.baudrate.value,9600),timeoutMs:nint(f.timeout.value,1200)},displayName:f.displayName.value.trim()||"Controllo Casa",apiToken:f.token.value.trim(),newt:{enabled:!!f.newtEnabled.checked,id:f.newtId.value.trim(),secret:f.newtSecret.value,endpoint:f.newtEndpoint.value.trim()||"https://app.pangolin.net"},mqtt:{enabled:!!f.mqttEnabled.checked,host:f.mqttHost.value.trim()||"127.0.0.1",port:nint(f.mqttPort.value,1883),username:f.mqttUser.value.trim(),password:f.mqttPass.value,clientId:f.mqttClientId.value.trim()||"algodomoiot",baseTopic:f.mqttBaseTopic.value.trim()||"algodomoiot",discoveryPrefix:f.mqttDiscoveryPrefix.value.trim()||"homeassistant",keepalive:nint(f.mqttKeepalive.value,60),pollIntervalSec:nint(f.mqttPollInterval.value,30),qos:nint(f.mqttQos.value,0),retain:!!f.mqttRetain.checked},network:{mode:f.netMode.value==="wifi"?"wifi":"ethernet",wifi:{ssid:f.wifiSsid.value.trim(),password:f.wifiPass.value}},boards:S.boards}}
 function ts(){const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`}
 function tokenQ(){return encodeURIComponent(f.token.value.trim())}
-function applyCfg(c){f.serialPort.value=c.serial?.port||"/dev/ttyS0";f.baudrate.value=c.serial?.baudrate||9600;f.timeout.value=c.serial?.timeoutMs||1200;f.displayName.value=c.displayName||"Controllo Casa";f.token.value=c.apiToken||"";f.newtEnabled.checked=!!c.newt?.enabled;f.newtId.value=c.newt?.id||"";f.newtSecret.value=c.newt?.secret||"";f.newtEndpoint.value=c.newt?.endpoint||"https://app.pangolin.net";f.netMode.value=(c.network?.mode==="wifi"?"wifi":"ethernet");f.wifiSsid.value=c.network?.wifi?.ssid||"";f.wifiPass.value=c.network?.wifi?.password||"";toggleWifi();S.boards=nbs(c.boards||[]);draw()}
+function applyCfg(c){f.serialPort.value=c.serial?.port||"/dev/ttyS0";f.baudrate.value=c.serial?.baudrate||9600;f.timeout.value=c.serial?.timeoutMs||1200;f.displayName.value=c.displayName||"Controllo Casa";f.token.value=c.apiToken||"";f.newtEnabled.checked=!!c.newt?.enabled;f.newtId.value=c.newt?.id||"";f.newtSecret.value=c.newt?.secret||"";f.newtEndpoint.value=c.newt?.endpoint||"https://app.pangolin.net";f.mqttEnabled.checked=!!c.mqtt?.enabled;f.mqttHost.value=c.mqtt?.host||"127.0.0.1";f.mqttPort.value=c.mqtt?.port||1883;f.mqttUser.value=c.mqtt?.username||"";f.mqttPass.value=c.mqtt?.password||"";f.mqttClientId.value=c.mqtt?.clientId||"algodomoiot";f.mqttBaseTopic.value=c.mqtt?.baseTopic||"algodomoiot";f.mqttDiscoveryPrefix.value=c.mqtt?.discoveryPrefix||"homeassistant";f.mqttKeepalive.value=c.mqtt?.keepalive||60;f.mqttPollInterval.value=c.mqtt?.pollIntervalSec||30;f.mqttQos.value=c.mqtt?.qos||0;f.mqttRetain.checked=(c.mqtt?.retain!==false);f.netMode.value=(c.network?.mode==="wifi"?"wifi":"ethernet");f.wifiSsid.value=c.network?.wifi?.ssid||"";f.wifiPass.value=c.network?.wifi?.password||"";toggleWifi();S.boards=nbs(c.boards||[]);draw()}
 async function load(){try{applyCfg(await gj('/api/config'));note('Configurazione caricata');await loadSystem()}catch(e){note(e.message,true)}}
 async function saveCurrent(quiet){const out=await pj('/api/config',payload());applyCfg(out.config||{});if(!quiet)note('Configurazione salvata');return out}
 async function save(){try{await saveCurrent(false);await loadSystem()}catch(e){note(e.message,true)}}
@@ -110,11 +129,11 @@ function dl(){try{const raw=JSON.stringify(payload(),null,2)+"\n",blob=new Blob(
 function up(){imp.value="";imp.click()}
 async function upf(ev){const file=ev.target.files&&ev.target.files[0];if(!file)return;try{applyCfg((await pj('/api/config',JSON.parse(await file.text()))).config||{});note('JSON caricato');await loadSystem()}catch(e){note('Errore JSON: '+e.message,true)}}
 async function prog(){try{if(!f.token.value.trim())throw new Error('Token mancante');const a=nint(f.newAddr.value,1),r=await gj('/api/cmd/program-address?token='+tokenQ()+'&address='+encodeURIComponent(a));note('Programmazione OK ACK='+r.ackHex+' ('+r.ack+')')}catch(e){note(e.message,true)}}
-function fmtSystem(s){const ifs=(s.interfaces||[]).map(i=>`${i.name} (${i.type}) ${i.state} ${((i.ips||[]).join(', ')||'-')}`).join('\n')||'-';const ips=(s.ips||[]).join(', ')||'-';const sv=s.services||{};return `Hostname: ${s.hostname||'-'}\nIP: ${ips}\nServizio app: ${sv.app||'-'}\nServizio newt: ${sv.newt||'-'}\nInterfacce:\n${ifs}`}
+function fmtSystem(s){const ifs=(s.interfaces||[]).map(i=>`${i.name} (${i.type}) ${i.state} ${((i.ips||[]).join(', ')||'-')}`).join('\n')||'-';const ips=(s.ips||[]).join(', ')||'-';const sv=s.services||{};return `Hostname: ${s.hostname||'-'}\nIP: ${ips}\nServizio app: ${sv.app||'-'}\nServizio newt: ${sv.newt||'-'}\nServizio mqtt: ${sv.mqtt||'-'}\nInterfacce:\n${ifs}`}
 async function loadSystem(){const t=f.token.value.trim();if(!t){sysNote('Inserisci/salva token per leggere stato sistema',false);return}try{const r=await gj('/api/system/info?token='+tokenQ());sysNote(fmtSystem(r.system||{}),false)}catch(e){sysNote('Errore stato: '+e.message,true)}}
 async function restartSvc(name){const t=f.token.value.trim();if(!t){note('Token mancante',true);return}try{await saveCurrent(true);const r=await gj('/api/admin/restart?token='+tokenQ()+'&service='+encodeURIComponent(name));note(r.message||'Restart inviato');setTimeout(loadSystem,800)}catch(e){note(e.message,true)}}
 async function applyNetwork(){const t=f.token.value.trim();if(!t){note('Token mancante',true);return}try{await saveCurrent(true);const r=await gj('/api/admin/apply-network?token='+tokenQ());note(r.message||'Rete applicata');if(r.system)sysNote(fmtSystem(r.system),false)}catch(e){note(e.message,true)}}
-f.netMode.onchange=toggleWifi;$("#reload").onclick=load;$("#addBoard").onclick=window.addB;$("#save").onclick=save;$("#downloadJson").onclick=dl;$("#uploadJson").onclick=up;imp.onchange=upf;$("#prog").onclick=prog;$("#loadSys").onclick=loadSystem;$("#restartApp").onclick=()=>restartSvc('app');$("#restartNewt").onclick=()=>restartSvc('newt');$("#applyNet").onclick=applyNetwork;load();
+f.netMode.onchange=toggleWifi;$("#reload").onclick=load;$("#addBoard").onclick=window.addB;$("#save").onclick=save;$("#downloadJson").onclick=dl;$("#uploadJson").onclick=up;imp.onchange=upf;$("#prog").onclick=prog;$("#loadSys").onclick=loadSystem;$("#restartApp").onclick=()=>restartSvc('app');$("#restartNewt").onclick=()=>restartSvc('newt');$("#restartMqtt").onclick=()=>restartSvc('mqtt');$("#applyNet").onclick=applyNetwork;load();
 </script>
 </body>
 </html>
