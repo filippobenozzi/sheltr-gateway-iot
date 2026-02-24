@@ -14,7 +14,13 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-import paho.mqtt.client as mqtt
+try:
+    import paho.mqtt.client as mqtt
+except Exception as exc:  # noqa: BLE001
+    mqtt = None
+    MQTT_IMPORT_ERROR = exc
+else:
+    MQTT_IMPORT_ERROR = None
 
 LOGGER = logging.getLogger("algodomoiot-mqtt")
 
@@ -83,6 +89,11 @@ class AlgoDomoMqttBridge:
         self._lock = threading.Lock()
         self._boards: list[dict[str, Any]] = []
         self._boards_by_slug: dict[str, dict[str, Any]] = {}
+        if mqtt is None:
+            if self.enabled:
+                raise RuntimeError(f"Modulo paho-mqtt non disponibile: {MQTT_IMPORT_ERROR}")
+            self._mqtt = None
+            return
         self._mqtt = mqtt.Client(client_id=self.client_id, protocol=mqtt.MQTTv311)
         if self.username:
             self._mqtt.username_pw_set(self.username, self.password)
@@ -374,7 +385,10 @@ class AlgoDomoMqttBridge:
                 self._publish_board_states(board_state, failed_addresses)
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):  # noqa: ANN001
-        rc = as_int(reason_code, -1)
+        raw_rc = getattr(reason_code, "value", reason_code)
+        rc = as_int(raw_rc, -1)
+        if rc != 0 and str(reason_code).strip().lower() in {"success", "0"}:
+            rc = 0
         if rc != 0:
             LOGGER.error("Connessione MQTT fallita: rc=%s", rc)
             return

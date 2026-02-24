@@ -572,6 +572,8 @@ def sync_mqtt_env(cfg: dict[str, Any]) -> None:
 
 def mqtt_runtime_payload(cfg: dict[str, Any]) -> dict[str, Any]:
     mqtt_cfg = as_dict(cfg.get("mqtt"))
+    boards = as_list(cfg.get("boards"))
+    boards_hash = hashlib.sha1(json.dumps(boards, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
     return {
         "enabled": bool_value(mqtt_cfg.get("enabled")),
         "host": normalize_text(mqtt_cfg.get("host"), ""),
@@ -586,6 +588,7 @@ def mqtt_runtime_payload(cfg: dict[str, Any]) -> dict[str, Any]:
         "qos": clamp_int(to_number(mqtt_cfg.get("qos"), 0), 0, 2),
         "retain": bool_value(mqtt_cfg.get("retain")),
         "apiToken": normalize_text(cfg.get("apiToken"), ""),
+        "boardsHash": boards_hash,
     }
 
 
