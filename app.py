@@ -877,6 +877,16 @@ def infer_light_state(channel: int, poll: dict[str, Any] | None, fallback: Any, 
     return fallback if isinstance(fallback, bool) else None
 
 
+def infer_thermostat_power(poll: dict[str, Any] | None, fallback: Any) -> bool:
+    # Da protocollo polling esteso 0x40: G9 = set temperatura interi.
+    # In questa integrazione 0 indica termostato spento, >0 acceso.
+    if isinstance(poll, dict):
+        raw = to_number(poll.get("setpoint"), float("nan"))
+        if math.isfinite(raw):
+            return clamp_int(raw, 0, 99) > 0
+    return fallback if isinstance(fallback, bool) else True
+
+
 def collect_addresses(cfg: dict[str, Any]) -> list[int]:
     values = set()
     for board in cfg.get("boards", []):
@@ -905,7 +915,12 @@ def build_status(refresh: bool) -> dict[str, Any]:
             try:
                 poll_board(address)
             except Exception as exc:
-                refresh_errors.append({"address": address, "error": str(exc)})
+                message = normalize_text(str(exc), "Errore polling")
+                # Alcune schede/firmware non rispondono al polling esteso 0x40:
+                # non bloccare UI e mantieni ultimo stato noto.
+                if "Risposta protocollo non valida" in message:
+                    continue
+                refresh_errors.append({"address": address, "error": message})
 
     snapshot = get_state()
     now = int(time.time() * 1000)
@@ -914,6 +929,7 @@ def build_status(refresh: bool) -> dict[str, Any]:
     rooms_map: dict[str, dict[str, Any]] = {}
     new_light_state: dict[str, dict[str, Any]] = {}
     new_dimmer_state: dict[str, dict[str, Any]] = {}
+    new_thermostat_state: dict[str, dict[str, Any]] = {}
 
     def room_bucket(name: str) -> dict[str, Any]:
         key = normalize_text(name, "Senza stanza")
@@ -1060,9 +1076,14 @@ def build_status(refresh: bool) -> dict[str, Any]:
                 mode = prev.get("mode") if isinstance(prev, dict) else None
                 if mode not in {"winter", "summer"}:
                     mode = "winter"
-                is_on = prev.get("isOn") if isinstance(prev, dict) else None
-                if not isinstance(is_on, bool):
-                    is_on = True
+                poll_setpoint: int | None = None
+                if isinstance(poll, dict):
+                    raw_sp = to_number(poll.get("setpoint"), float("nan"))
+                    if math.isfinite(raw_sp):
+                        poll_setpoint = clamp_int(raw_sp, 0, 99)
+                is_on = infer_thermostat_power(poll if isinstance(poll, dict) else None, prev.get("isOn") if isinstance(prev, dict) else None)
+                if poll_setpoint is not None:
+                    setpoint = float(poll_setpoint)
                 payload_board["channels"].append(
                     {
                         "id": item_id,
@@ -1073,9 +1094,15 @@ def build_status(refresh: bool) -> dict[str, Any]:
                         "setpoint": setpoint,
                         "mode": mode,
                         "isOn": is_on,
-                        "boardSetpoint": poll.get("setpoint") if isinstance(poll, dict) else None,
+                        "boardSetpoint": poll_setpoint,
                     }
                 )
+                new_thermostat_state[item_id] = {
+                    "setpoint": setpoint,
+                    "mode": mode,
+                    "isOn": is_on,
+                    "updatedAt": now,
+                }
                 room_bucket(ch_room)["thermostats"].append(
                     {
                         "id": item_id,
@@ -1089,7 +1116,7 @@ def build_status(refresh: bool) -> dict[str, Any]:
                         "setpoint": setpoint,
                         "mode": mode,
                         "isOn": is_on,
-                        "boardSetpoint": poll.get("setpoint") if isinstance(poll, dict) else None,
+                        "boardSetpoint": poll_setpoint,
                     }
                 )
 
@@ -1102,6 +1129,9 @@ def build_status(refresh: bool) -> dict[str, Any]:
         dimmers = state.setdefault("dimmers", {})
         for key, value in new_dimmer_state.items():
             dimmers[key] = value
+        thermostats = state.setdefault("thermostats", {})
+        for key, value in new_thermostat_state.items():
+            thermostats[key] = value
         state["updatedAt"] = now
 
     update_state(mutator)
