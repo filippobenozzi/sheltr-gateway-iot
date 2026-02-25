@@ -54,6 +54,44 @@ DIMMER_SET_KEY = 0x53
 DIMMER_MIN_LEVEL = 0
 DIMMER_MAX_LEVEL = 9
 THERMOSTAT_PROFILE_INTERVAL_S = 20
+WEEKDAY_ALL = [1, 2, 3, 4, 5, 6, 7]
+WEEKDAY_ALIASES = {
+    "1": 1,
+    "mon": 1,
+    "monday": 1,
+    "lun": 1,
+    "lunedi": 1,
+    "2": 2,
+    "tue": 2,
+    "tuesday": 2,
+    "mar": 2,
+    "martedi": 2,
+    "3": 3,
+    "wed": 3,
+    "wednesday": 3,
+    "mer": 3,
+    "mercoledi": 3,
+    "4": 4,
+    "thu": 4,
+    "thursday": 4,
+    "gio": 4,
+    "giovedi": 4,
+    "5": 5,
+    "fri": 5,
+    "friday": 5,
+    "ven": 5,
+    "venerdi": 5,
+    "6": 6,
+    "sat": 6,
+    "saturday": 6,
+    "sab": 6,
+    "sabato": 6,
+    "7": 7,
+    "sun": 7,
+    "sunday": 7,
+    "dom": 7,
+    "domenica": 7,
+}
 
 ALLOWED_KINDS = {"light", "shutter", "thermostat", "dimmer"}
 MAX_CHANNEL_BY_KIND = {
@@ -89,10 +127,16 @@ LOCK = threading.Lock()
 SERIAL_LOCK = threading.Lock()
 CONFIG: dict[str, Any] = {}
 STATE: dict[str, Any] = {}
+SWITCH_PROFILE_LAST_RUN: dict[str, str] = {}
 
 
 def default_thermostat_profile() -> dict[str, Any]:
     return {"enabled": False, "entries": []}
+
+
+def default_switch_profile(kind: str) -> dict[str, Any]:
+    action = "up" if kind == "shutter" else "off"
+    return {"enabled": False, "time": "00:00", "action": action, "days": WEEKDAY_ALL.copy()}
 
 
 def normalize_hhmm(value: Any, fallback: str = "00:00") -> str:
@@ -114,6 +158,52 @@ def hhmm_to_minute(value: str) -> int:
     return clamp_int(to_number(parts[0], 0), 0, 23) * 60 + clamp_int(to_number(parts[1], 0), 0, 59)
 
 
+def normalize_weekday_token(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        day_num = int(value)
+        if 1 <= day_num <= 7:
+            return day_num
+        return None
+    raw = normalize_text(value, "").lower()
+    if not raw:
+        return None
+    txt = (
+        raw.replace("à", "a")
+        .replace("è", "e")
+        .replace("é", "e")
+        .replace("ì", "i")
+        .replace("ò", "o")
+        .replace("ù", "u")
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
+    if txt in WEEKDAY_ALIASES:
+        return WEEKDAY_ALIASES[txt]
+    return None
+
+
+def normalize_weekdays(value: Any) -> list[int]:
+    out: list[int] = []
+    if isinstance(value, dict):
+        for key, enabled in value.items():
+            if not bool_value(enabled):
+                continue
+            day_num = normalize_weekday_token(key)
+            if day_num is not None:
+                out.append(day_num)
+    else:
+        seq = value if isinstance(value, (list, tuple, set)) else [value]
+        for item in seq:
+            day_num = normalize_weekday_token(item)
+            if day_num is not None:
+                out.append(day_num)
+    unique = sorted(set(out))
+    return unique if unique else WEEKDAY_ALL.copy()
+
+
 def normalize_thermostat_profile_entry(entry_any: Any) -> dict[str, Any]:
     entry = entry_any if isinstance(entry_any, dict) else {}
     start_at = normalize_hhmm(entry.get("from"), "00:00")
@@ -124,7 +214,8 @@ def normalize_thermostat_profile_entry(entry_any: Any) -> dict[str, Any]:
     setpoint = max(5.0, min(30.0, round(setpoint * 2.0) / 2.0))
     mode_raw = normalize_text(entry.get("mode"), "winter").lower()
     mode = "summer" if mode_raw in {"summer", "estate", "cool"} else "winter"
-    return {"from": start_at, "to": end_at, "setpoint": setpoint, "mode": mode}
+    days = normalize_weekdays(entry.get("days"))
+    return {"from": start_at, "to": end_at, "setpoint": setpoint, "mode": mode, "days": days}
 
 
 def normalize_thermostat_profile(profile_any: Any) -> dict[str, Any]:
@@ -137,18 +228,39 @@ def normalize_thermostat_profile(profile_any: Any) -> dict[str, Any]:
     return {"enabled": bool_value(profile.get("enabled")), "entries": entries}
 
 
-def thermostat_profile_target(profile: dict[str, Any], now_minute: int) -> tuple[float, str]:
+def normalize_switch_profile(profile_any: Any, kind: str) -> dict[str, Any]:
+    fallback = default_switch_profile(kind)
+    profile = profile_any if isinstance(profile_any, dict) else {}
+    action_raw = normalize_text(profile.get("action"), fallback["action"]).lower()
+    if kind == "shutter":
+        action = "up" if action_raw == "up" else "down"
+    else:
+        action = "on" if action_raw == "on" else "off"
+    return {
+        "enabled": bool_value(profile.get("enabled")),
+        "time": normalize_hhmm(profile.get("time"), "00:00"),
+        "action": action,
+        "days": normalize_weekdays(profile.get("days")),
+    }
+
+
+def thermostat_profile_target(profile: dict[str, Any], now_minute: int, now_weekday: int) -> tuple[float, str]:
+    prev_weekday = 7 if now_weekday <= 1 else now_weekday - 1
     for entry in as_list(profile.get("entries")):
         if not isinstance(entry, dict):
             continue
+        days = normalize_weekdays(entry.get("days"))
         start_at = hhmm_to_minute(normalize_hhmm(entry.get("from"), "00:00"))
         end_at = hhmm_to_minute(normalize_hhmm(entry.get("to"), "23:59"))
         if start_at == end_at:
-            match = True
+            match = now_weekday in days
         elif start_at < end_at:
-            match = start_at <= now_minute < end_at
+            match = now_weekday in days and start_at <= now_minute < end_at
         else:
-            match = now_minute >= start_at or now_minute < end_at
+            if now_minute >= start_at:
+                match = now_weekday in days
+            else:
+                match = prev_weekday in days
         if not match:
             continue
         setpoint = to_float(entry.get("setpoint"), 21.0)
@@ -170,6 +282,8 @@ def make_board(board_id: str, name: str, address: int, kind: str, start: int, en
         }
         if kind == "thermostat":
             channel_item["profile"] = default_thermostat_profile()
+        elif kind in {"light", "shutter"}:
+            channel_item["profile"] = default_switch_profile(kind)
         channels.append(channel_item)
     return {
         "id": board_id,
@@ -469,6 +583,8 @@ def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
         provided_rooms[channel_num] = normalize_text(entry.get("room"), "Senza stanza")
         if kind == "thermostat":
             provided_profiles[channel_num] = normalize_thermostat_profile(entry.get("profile"))
+        elif kind in {"light", "shutter"}:
+            provided_profiles[channel_num] = normalize_switch_profile(entry.get("profile"), kind)
 
     channels = []
     for channel_num in range(start, end + 1):
@@ -479,6 +595,8 @@ def normalize_board(board_any: Any, index: int) -> dict[str, Any]:
         }
         if kind == "thermostat":
             channel_item["profile"] = provided_profiles.get(channel_num, default_thermostat_profile())
+        elif kind in {"light", "shutter"}:
+            channel_item["profile"] = provided_profiles.get(channel_num, default_switch_profile(kind))
         channels.append(channel_item)
 
     return {
@@ -1384,6 +1502,7 @@ def apply_thermostat_profiles_once() -> None:
     snapshot = get_state()
     now_local = time.localtime()
     now_minute = now_local.tm_hour * 60 + now_local.tm_min
+    now_weekday = now_local.tm_wday + 1
 
     for board in as_list(cfg.get("boards")):
         if not isinstance(board, dict) or board.get("kind") != "thermostat":
@@ -1401,7 +1520,7 @@ def apply_thermostat_profiles_once() -> None:
             if not profile.get("enabled"):
                 continue
 
-            target_setpoint, target_mode = thermostat_profile_target(profile, now_minute)
+            target_setpoint, target_mode = thermostat_profile_target(profile, now_minute, now_weekday)
             item_id = entity_id(board_id, ch)
             prev = as_dict(as_dict(snapshot.get("thermostats")).get(item_id))
             prev_set = prev.get("setpoint")
@@ -1423,10 +1542,65 @@ def apply_thermostat_profiles_once() -> None:
                 print(f"[warn] profilo termostato {item_id} fallito:", exc)
 
 
+def apply_switch_profiles_once() -> None:
+    cfg = get_config()
+    now_local = time.localtime()
+    now_minute = now_local.tm_hour * 60 + now_local.tm_min
+    now_weekday = now_local.tm_wday + 1
+    minute_stamp = f"{now_local.tm_year}-{now_local.tm_yday}-{now_minute}"
+
+    valid_keys: set[str] = set()
+    for board in as_list(cfg.get("boards")):
+        if not isinstance(board, dict):
+            continue
+        kind = normalize_text(board.get("kind"), "").lower()
+        if kind not in {"light", "shutter"}:
+            continue
+        board_id = normalize_text(board.get("id"), "")
+        if not board_id:
+            continue
+        for channel in as_list(board.get("channels")):
+            if not isinstance(channel, dict):
+                continue
+            ch = clamp_int(to_number(channel.get("channel"), -1), 1, MAX_CHANNEL_BY_KIND[kind])
+            if ch < 1:
+                continue
+            item_id = entity_id(board_id, ch)
+            cache_key = f"{kind}:{item_id}"
+            valid_keys.add(cache_key)
+
+            profile = normalize_switch_profile(channel.get("profile"), kind)
+            if not profile.get("enabled"):
+                continue
+            if now_weekday not in normalize_weekdays(profile.get("days")):
+                continue
+            trigger_minute = hhmm_to_minute(normalize_hhmm(profile.get("time"), "00:00"))
+            if now_minute != trigger_minute:
+                continue
+            if SWITCH_PROFILE_LAST_RUN.get(cache_key) == minute_stamp:
+                continue
+
+            try:
+                if kind == "light":
+                    action = "on" if normalize_text(profile.get("action"), "off").lower() == "on" else "off"
+                    api_light({"id": [item_id], "action": [action]})
+                else:
+                    action = "up" if normalize_text(profile.get("action"), "down").lower() == "up" else "down"
+                    api_shutter({"id": [item_id], "action": [action]})
+                SWITCH_PROFILE_LAST_RUN[cache_key] = minute_stamp
+            except Exception as exc:  # noqa: BLE001
+                print(f"[warn] profilo {kind} {item_id} fallito:", exc)
+
+    stale = [key for key in SWITCH_PROFILE_LAST_RUN if key not in valid_keys]
+    for key in stale:
+        SWITCH_PROFILE_LAST_RUN.pop(key, None)
+
+
 def thermostat_profile_loop() -> None:
     while True:
         try:
             apply_thermostat_profiles_once()
+            apply_switch_profiles_once()
         except Exception as exc:  # noqa: BLE001
             print("[warn] loop profilo termostati:", exc)
         time.sleep(THERMOSTAT_PROFILE_INTERVAL_S)
