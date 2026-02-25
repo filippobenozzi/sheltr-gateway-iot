@@ -1,4 +1,4 @@
-# AlgoDomo IoT (Python, seriale `/dev/ttyS0`)
+# Sheltr IoT (Python, seriale `/dev/ttyS0`)
 
 Applicazione Python leggera con:
 

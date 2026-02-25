@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AlgoDomo lightweight web app over serial /dev/ttyS0."""
+"""Sheltr lightweight web app over serial /dev/ttyS0."""
 
 from __future__ import annotations
 
@@ -350,8 +350,8 @@ def default_config() -> dict[str, Any]:
             "port": 1883,
             "username": "",
             "password": "",
-            "clientId": "algodomoiot",
-            "baseTopic": "algodomoiot",
+            "clientId": "sheltr",
+            "baseTopic": "sheltr",
             "discoveryPrefix": "homeassistant",
             "keepalive": 60,
             "pollIntervalSec": 30,
@@ -723,7 +723,7 @@ def sync_newt_env(cfg: dict[str, Any]) -> None:
     newt = as_dict(cfg.get("newt"))
     endpoint = normalize_text(newt.get("endpoint"), "https://app.pangolin.net")
     lines = [
-        "# File auto-generato da AlgoDomo. Modificare da /config",
+        "# File auto-generato da Sheltr. Modificare da /config",
         f'NEWT_ENABLED={"1" if bool_value(newt.get("enabled")) else "0"}',
         f'NEWT_ID="{env_escape(normalize_text(newt.get("id"), ""))}"',
         f'NEWT_SECRET="{env_escape(normalize_text(newt.get("secret"), ""))}"',
@@ -778,8 +778,8 @@ def sync_mqtt_env(cfg: dict[str, Any]) -> None:
     port = to_port(mqtt_cfg.get("port"), 1883)
     username = normalize_text(mqtt_cfg.get("username"), "")
     password = normalize_text(mqtt_cfg.get("password"), "")
-    client_id = normalize_text(mqtt_cfg.get("clientId"), "algodomoiot")
-    base_topic = normalize_topic(mqtt_cfg.get("baseTopic"), "algodomoiot")
+    client_id = normalize_text(mqtt_cfg.get("clientId"), "sheltr")
+    base_topic = normalize_topic(mqtt_cfg.get("baseTopic"), "sheltr")
     discovery_prefix = normalize_topic(mqtt_cfg.get("discoveryPrefix"), "homeassistant")
     keepalive = clamp_int(to_number(mqtt_cfg.get("keepalive"), 60), 10, 86400)
     poll_interval = clamp_int(to_number(mqtt_cfg.get("pollIntervalSec"), 30), 2, 3600)
@@ -787,7 +787,7 @@ def sync_mqtt_env(cfg: dict[str, Any]) -> None:
     retain = "1" if bool_value(mqtt_cfg.get("retain")) else "0"
     token = normalize_text(cfg.get("apiToken"), "")
     lines = [
-        "# File auto-generato da AlgoDomo. Modificare da /config",
+        "# File auto-generato da Sheltr. Modificare da /config",
         f'MQTT_ENABLED={"1" if bool_value(mqtt_cfg.get("enabled")) else "0"}',
         f'MQTT_HOST="{env_escape(host)}"',
         f"MQTT_PORT={port}",
@@ -817,7 +817,7 @@ def mqtt_runtime_payload(cfg: dict[str, Any]) -> dict[str, Any]:
         "username": normalize_text(mqtt_cfg.get("username"), ""),
         "password": normalize_text(mqtt_cfg.get("password"), ""),
         "clientId": normalize_text(mqtt_cfg.get("clientId"), ""),
-        "baseTopic": normalize_topic(mqtt_cfg.get("baseTopic"), "algodomoiot"),
+        "baseTopic": normalize_topic(mqtt_cfg.get("baseTopic"), "sheltr"),
         "discoveryPrefix": normalize_topic(mqtt_cfg.get("discoveryPrefix"), "homeassistant"),
         "keepalive": clamp_int(to_number(mqtt_cfg.get("keepalive"), 60), 10, 86400),
         "pollIntervalSec": clamp_int(to_number(mqtt_cfg.get("pollIntervalSec"), 30), 2, 3600),
@@ -1953,7 +1953,7 @@ def api_admin_restart(query: dict[str, list[str]]) -> dict[str, Any]:
         mqtt_cfg = as_dict(cfg.get("mqtt"))
         enabled = bool_value(mqtt_cfg.get("enabled"))
         host = normalize_text(mqtt_cfg.get("host"), "")
-        base_topic = normalize_topic(mqtt_cfg.get("baseTopic"), "algodomoiot")
+        base_topic = normalize_topic(mqtt_cfg.get("baseTopic"), "sheltr")
         token = normalize_text(cfg.get("apiToken"), "")
         if not enabled or not host or not base_topic or not token:
             raise ValueError("mqtt non configurato: abilita MQTT e compila host/base topic/token in /config")
@@ -2002,7 +2002,7 @@ def api_admin_apply_network() -> dict[str, Any]:
 
 
 class AlgoHandler(BaseHTTPRequestHandler):
-    server_version = "AlgoDomoPython/2.0"
+    server_version = "SheltrPython/2.0"
 
     def do_GET(self) -> None:  # noqa: N802
         self._handle_request()
@@ -2213,7 +2213,7 @@ def run() -> None:
     port = to_port(os.environ.get("PORT", "80"), 80)
     threading.Thread(target=thermostat_profile_loop, name="thermostat-profile", daemon=True).start()
     server = ThreadingHTTPServer((host, port), AlgoHandler)
-    print(f"AlgoDomo Python in ascolto su http://{host}:{port}")
+    print(f"Sheltr Python in ascolto su http://{host}:{port}")
     server.serve_forever()
 
 

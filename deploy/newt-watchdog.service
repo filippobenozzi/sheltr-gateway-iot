@@ -1,5 +1,5 @@
 [Unit]
-Description=AlgoDomo NEWT Watchdog
+Description=Sheltr NEWT Watchdog
 After=network-online.target
 Wants=network-online.target
 

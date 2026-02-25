@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AlgoDomo MQTT bridge for Home Assistant (no rooms, channel names as CHx)."""
+"""Sheltr MQTT bridge for Home Assistant (no rooms, channel names as CHx)."""
 
 from __future__ import annotations
 
@@ -83,15 +83,15 @@ def clamp(value: int, min_value: int, max_value: int) -> int:
     return value
 
 
-class AlgoDomoMqttBridge:
+class SheltrMqttBridge:
     def __init__(self) -> None:
         self.enabled = bool_env("MQTT_ENABLED", False)
         self.host = text_env("MQTT_HOST", "127.0.0.1")
         self.port = int_env("MQTT_PORT", 1883, 1, 65535)
         self.username = text_env("MQTT_USERNAME", "")
         self.password = text_env("MQTT_PASSWORD", "")
-        self.client_id = text_env("MQTT_CLIENT_ID", "algodomoiot")
-        self.base_topic = text_env("MQTT_BASE_TOPIC", "algodomoiot").strip("/")
+        self.client_id = text_env("MQTT_CLIENT_ID", "sheltr")
+        self.base_topic = text_env("MQTT_BASE_TOPIC", "sheltr").strip("/")
         self.discovery_prefix = text_env("MQTT_DISCOVERY_PREFIX", "homeassistant").strip("/")
         self.keepalive = int_env("MQTT_KEEPALIVE", 60, 10, 86400)
         self.poll_interval = int_env("MQTT_POLL_INTERVAL", 30, 2, 3600)
@@ -221,15 +221,15 @@ class AlgoDomoMqttBridge:
         return {
             "identifiers": [f"algodomoiot_{board['slug']}"],
             "name": board["name"],
-            "manufacturer": "AlgoDomo",
+            "manufacturer": "Sheltr",
             "model": f"board-{board['kind']}",
         }
 
     def _bridge_device_payload(self) -> dict[str, Any]:
         return {
             "identifiers": ["algodomoiot_mqtt_bridge"],
-            "name": "AlgoDomo MQTT",
-            "manufacturer": "AlgoDomo",
+            "name": "Sheltr MQTT",
+            "manufacturer": "Sheltr",
             "model": "mqtt-bridge",
         }
 
@@ -610,7 +610,7 @@ class AlgoDomoMqttBridge:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(asctime)s %(message)s")
-    bridge = AlgoDomoMqttBridge()
+    bridge = SheltrMqttBridge()
 
     def _stop_handler(signum, frame):  # noqa: ANN001
         LOGGER.info("Ricevuto segnale %s, stop MQTT bridge", signum)
