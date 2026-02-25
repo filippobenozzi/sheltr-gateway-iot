@@ -217,6 +217,20 @@ sync_rtc() {
   esac
 }
 
+read_rtc() {
+  local dev="${1:-}" hwc
+  if ! hwc="$(hwclock_cmd)"; then
+    die "Comando hwclock non disponibile"
+  fi
+  if [[ -z "${dev}" ]]; then
+    dev="$(pick_rtc_dev "" || true)"
+  fi
+  if [[ -z "${dev}" ]]; then
+    die "Nessun device RTC trovato (/dev/rtc*). Se hai appena applicato overlay RTC, esegui reboot."
+  fi
+  "${hwc}" -r -f "${dev}"
+}
+
 case "${ACTION}" in
   apply)
     apply_rtc "${2:-0}" "${3:-ds3231}" "${4:-1}" "${5:-0x68}"
@@ -224,7 +238,10 @@ case "${ACTION}" in
   sync)
     sync_rtc "${2:-from-rtc}"
     ;;
+  read)
+    read_rtc "${2:-}"
+    ;;
   *)
-    die "Uso: rtc_control.sh apply <enabled 0|1> <model> <bus> <address> | rtc_control.sh sync <from-rtc|to-rtc>"
+    die "Uso: rtc_control.sh apply <enabled 0|1> <model> <bus> <address> | rtc_control.sh sync <from-rtc|to-rtc> | rtc_control.sh read [device]"
     ;;
 esac

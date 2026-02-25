@@ -51,6 +51,10 @@ case "${ACTION}" in
     MODE="${2:-from-rtc}"
     /usr/local/lib/sheltr-admin/rtc_control.sh sync "${MODE}"
     ;;
+  rtc-read)
+    DEV="${2:-}"
+    /usr/local/lib/sheltr-admin/rtc_control.sh read "${DEV}"
+    ;;
   *)
     echo "Azione non valida" >&2
     exit 1

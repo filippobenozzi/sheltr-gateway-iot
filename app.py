@@ -1032,6 +1032,7 @@ def rtc_system_status() -> dict[str, Any]:
     devices = list_rtc_devices()
     rtc_device = pick_rtc_device(devices, str(rtc_cfg["model"]))
     hwclock_cmd = hwclock_binary()
+    hwclock_source = "direct"
     if hwclock_cmd:
         if rtc_device:
             hwclock = run_cmd([hwclock_cmd, "-f", rtc_device, "-r"], timeout_s=6)
@@ -1039,6 +1040,24 @@ def rtc_system_status() -> dict[str, Any]:
             hwclock = run_cmd([hwclock_cmd, "-r"], timeout_s=6)
     else:
         hwclock = {"ok": False, "stdout": "", "stderr": "Comando hwclock non disponibile"}
+
+    # Fallback: se il processo web non ha permessi su /dev/rtc* o hwclock fallisce,
+    # usa script admin in sudo (che forza -f /dev/rtcX).
+    if not bool(hwclock.get("ok")):
+        original_err = normalize_text(hwclock.get("stderr") or hwclock.get("stdout"), "")
+        try:
+            admin_args = [rtc_device] if rtc_device else []
+            admin = run_admin_action("rtc-read", admin_args)
+            admin_out = normalize_text(admin.get("stdout"), "")
+            hwclock = {"ok": True, "stdout": admin_out, "stderr": ""}
+            hwclock_source = "sudo-admin"
+        except Exception as exc:  # noqa: BLE001
+            admin_err = normalize_text(str(exc), "")
+            if admin_err:
+                if original_err and admin_err not in original_err:
+                    hwclock["stderr"] = f"{original_err} | fallback sudo-admin: {admin_err}"
+                elif not original_err:
+                    hwclock["stderr"] = admin_err
     return {
         "enabled": bool(rtc_cfg["enabled"]),
         "configModel": rtc_cfg["model"],
@@ -1054,6 +1073,7 @@ def rtc_system_status() -> dict[str, Any]:
         "rtcDevice": rtc_device,
         "rtcDevices": devices,
         "hwclockPath": hwclock_cmd,
+        "hwclockSource": hwclock_source,
         "hwclockOk": bool(hwclock["ok"]),
         "hwclockTime": normalize_text(hwclock["stdout"], ""),
         "error": normalize_text(hwclock["stderr"] or hwclock["stdout"], "") if not hwclock["ok"] else "",
