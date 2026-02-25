@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#191919">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/icon.svg?v=1" type="image/svg+xml">
 <style>
 :root{--bg:#191919;--section:#202020;--fg:#f0efed;--muted:#bcbab6;--bd:#bcbab6;--s1:4px;--s2:8px;--s3:12px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,Monaco,Liberation Mono,monospace}
 *{box-sizing:border-box}
@@ -60,7 +60,7 @@ input,select{border:1px solid var(--bd);border-radius:6px;padding:6px;background
 .tr{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .tr input,.tr select{border:1px solid var(--bd);border-radius:6px;padding:5px;background:var(--section);color:var(--fg)}
 .tr .rm{min-width:28px;padding:5px 6px}
-.days{display:flex;gap:6px;flex-wrap:wrap}
+.days{display:flex;gap:6px;flex-wrap:wrap;margin-top: 4px}
 .dw{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--bd);border-radius:6px;padding:2px 6px;font-size:11px;background:var(--section);color:var(--fg)}
 .dw input{margin:0}
 .trb{border:1px dashed var(--bd);border-radius:6px;padding:6px}
@@ -94,7 +94,7 @@ const esc=v=>String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&
 const sq=v=>String(v??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
 const sid=v=>String(v??"").replace(/[^a-zA-Z0-9_-]/g,"_");
 const SH_HOLD_MS=60000,SH_VERIFY_MS=65000,shHold={},shVerify={};
-const DOW=[{id:1,label:"Lun"},{id:2,label:"Mar"},{id:3,label:"Mer"},{id:4,label:"Gio"},{id:5,label:"Ven"},{id:6,label:"Sab"},{id:7,label:"Dom"}];
+const DOW=[{id:1,label:"LU"},{id:2,label:"MA"},{id:3,label:"ME"},{id:4,label:"GI"},{id:5,label:"VE"},{id:6,label:"SA"},{id:7,label:"DO"}];
 const DOW_ALL=DOW.map(x=>x.id);
 function shAction(id){const h=shHold[id];if(h&&h.until>Date.now())return h.action;if(h)delete shHold[id];return""}
 function scheduleShVerify(id){if(shVerify[id])clearTimeout(shVerify[id]);shVerify[id]=setTimeout(async()=>{delete shVerify[id];if(!token)return;try{await refresh(true)}catch(_){ }},SH_VERIFY_MS)}
