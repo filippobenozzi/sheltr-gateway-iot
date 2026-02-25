@@ -20,15 +20,15 @@ h1{font-size:17px;margin:0}
 #top,#bulk{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin:0 0 var(--s2)}
 #bulk{display:none}
 button,input,select{font:12px/1.2 var(--mono)}
-button{border:1px solid var(--bd);background:#fff;color:#1b2430;border-radius:6px;padding:6px 10px;cursor:pointer}
-button:hover{background:#f4f7fb}
+button{border:1px solid var(--bd);background:#000;color:#fff;border-radius:6px;padding:6px 10px;cursor:pointer}
+button:hover{background:#111}
 button:disabled{opacity:.55;cursor:not-allowed}
 input,select{border:1px solid var(--bd);border-radius:6px;padding:6px;background:var(--section);color:var(--fg)}
 ::placeholder{color:var(--muted);opacity:1}
 .room{background:var(--section);border:1px solid var(--bd);border-radius:6px;padding:var(--s3);margin:var(--s3) 0}
 .room h2{font-size:15px;margin:0 0 var(--s2)}
 .grid{display:flex;flex-wrap:wrap;gap:var(--s2)}
-.card{position:relative;width:100%;max-width:230px;border:1px solid var(--bd);border-radius:6px;background:var(--section);padding:var(--s2);display:flex;flex-direction:column;justify-content:center;text-align:center}
+.card{position:relative;width:100%;max-width:250px;border:1px solid var(--bd);border-radius:6px;background:var(--section);padding:var(--s2);display:flex;flex-direction:column;justify-content:center;text-align:center}
 .hd{display:flex;align-items:center;justify-content:space-between;width:100%;gap:var(--s2)}
 .tt{font-weight:700;margin:8px auto 2px}
 .gear{position:absolute;top:8px;right:8px;border:1px solid var(--bd);background:#2b2b2b;color:var(--muted);min-width:26px;padding:3px 6px;border-radius:6px;font-size:13px;line-height:1}
@@ -68,7 +68,7 @@ input,select{border:1px solid var(--bd);border-radius:6px;padding:6px;background
 .foot{margin-top:auto;padding:var(--s3) 0 2px;text-align:center;font-style:italic;font:12px/1.3 var(--mono);color:var(--muted)}
 .foot a{color:inherit}
 .hidden{display:none}
-@media (max-width:576px){.card.temp{width:100%;max-width:500px}.card{width:calc(50% - 24px);max-width:148px}}
+@media (max-width:576px){.card.temp{width:100%;max-width:550px}.card{width:50%;}}
 </style>
 </head>
 <body>
