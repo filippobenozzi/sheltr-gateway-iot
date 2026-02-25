@@ -10,7 +10,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg?v=1" type="image/svg+xml">
 <style>
-:root{--bg:#191919;--section:#202020;--fg:#f0efed;--muted:#bcbab6;--bd:#bcbab6;--s1:4px;--s2:8px;--s3:12px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,Monaco,Liberation Mono,monospace}
+:root{--bg:#191919;--section:#282828;--fg:#f0efed;--muted:#bcbab6;--bd:#bcbab6;--s1:4px;--s2:8px;--s3:12px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,Monaco,Liberation Mono,monospace}
 *{box-sizing:border-box}
 body{margin:0;padding:var(--s3);min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:13px/1.35 var(--mono)}
 .brand{display:flex;align-items:center;gap:var(--s2);margin:0 0 var(--s1)}
@@ -60,9 +60,10 @@ input,select{border:1px solid var(--bd);border-radius:6px;padding:6px;background
 .tr{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .tr input,.tr select{border:1px solid var(--bd);border-radius:6px;padding:5px;background:var(--section);color:var(--fg)}
 .tr .rm{min-width:28px;padding:5px 6px}
-.days{display:flex;gap:6px;flex-wrap:wrap;margin-top: 4px}
-.dw{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--bd);border-radius:6px;padding:2px 6px;font-size:11px;background:var(--section);color:var(--fg)}
-.dw input{margin:0}
+.days{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.dw{display:inline-flex;align-items:center;justify-content:center;min-width:38px;border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:11px;background:transparent;color:var(--muted);cursor:pointer}
+.dw:hover{background:transparent;color:var(--fg);border-color:var(--fg)}
+.dw.on,.dw.on:hover{background:#2563eb;color:#fff;border-color:#2563eb}
 .trb{border:1px dashed var(--bd);border-radius:6px;padding:6px}
 .tpb{display:flex;gap:var(--s2);flex-wrap:wrap;margin:var(--s3) 0 0}
 .foot{margin-top:auto;padding:var(--s3) 0 2px;text-align:center;font-style:italic;font:12px/1.3 var(--mono);color:var(--muted)}
@@ -94,7 +95,7 @@ const esc=v=>String(v??"").replace(/[&<>'"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&
 const sq=v=>String(v??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
 const sid=v=>String(v??"").replace(/[^a-zA-Z0-9_-]/g,"_");
 const SH_HOLD_MS=60000,SH_VERIFY_MS=65000,shHold={},shVerify={};
-const DOW=[{id:1,label:"LU"},{id:2,label:"MA"},{id:3,label:"ME"},{id:4,label:"GI"},{id:5,label:"VE"},{id:6,label:"SA"},{id:7,label:"DO"}];
+const DOW=[{id:1,label:"LUN"},{id:2,label:"MAR"},{id:3,label:"MER"},{id:4,label:"GIO"},{id:5,label:"VEN"},{id:6,label:"SAB"},{id:7,label:"DOM"}];
 const DOW_ALL=DOW.map(x=>x.id);
 function shAction(id){const h=shHold[id];if(h&&h.until>Date.now())return h.action;if(h)delete shHold[id];return""}
 function scheduleShVerify(id){if(shVerify[id])clearTimeout(shVerify[id]);shVerify[id]=setTimeout(async()=>{delete shVerify[id];if(!token)return;try{await refresh(true)}catch(_){ }},SH_VERIFY_MS)}
@@ -129,13 +130,13 @@ function syncBulkVisibility(){const hasLight=(ids('light').length+ids('dimmer').
 async function refresh(poll){if(running||bulk||!token)return;running=true;try{const d=await gj('/api/status?token='+encodeURIComponent(token)+'&refresh='+(poll?1:0));render(d);if(!(d.refreshErrors||[]).length)note('OK')}catch(e){note(e.message,true)}finally{running=false}}
 async function cmd(url,doRefresh=true){try{const r=await gj(url);if(Array.isArray(r.frames)&&r.frames.length)note('Comandi: '+r.frames.map(x=>x.type+': '+(x.frame?.hex||'?')).join(' | '));else if(r.frame?.hex)note('Comando: '+r.frame.hex);else note('Comando eseguito');if(doRefresh)await refresh(false)}catch(e){note(e.message,true)}}
 async function runAll(kind,action,label){if(!token||bulk)return;bulk=true;bulkDisabled(true);let ok=0,ko=0;if(kind==='light'){for(const id of ids('light')){try{await gj('/api/cmd/light?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action));ok++}catch(_){ko++}}for(const id of ids('dimmer')){try{await gj('/api/cmd/dimmer?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&action=off');ok++}catch(_){ko++}}}else{for(const id of ids('shutter')){setShAction(id,action==='up'?'up':(action==='down'?'down':'stop'));try{await gj('/api/cmd/shutter?token='+encodeURIComponent(token)+'&id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action));ok++}catch(_){ko++}}if(lastData)render(lastData,true)}bulk=false;bulkDisabled(false);if(!ok&&!ko){note('Nessuna entita '+label);return}note(label+': '+ok+' ok'+(ko?', '+ko+' errori':''),ko>0);await refresh(false)}
-function rowDaysHtml(i,days){const d=normDays(days);return DOW.map(x=>'<label class="dw"><input type="checkbox" '+(d.includes(x.id)?'checked ':'')+'onchange="tpDay('+i+','+x.id+',this.checked)"><span>'+x.label+'</span></label>').join('')}
+function rowDaysHtml(i,days){const d=normDays(days);return DOW.map(x=>'<button type="button" class="dw'+(d.includes(x.id)?' on':'')+'" onclick="tpDay('+i+','+x.id+')">'+x.label+'</button>').join('')}
 function switchOpts(kind,current){const c=String(current||"").toLowerCase();if(kind==="shutter")return '<option value="up"'+(c==="up"?' selected':'')+'>SU</option><option value="down"'+(c==="down"?' selected':'')+'>GIU</option>';return '<option value="on"'+(c==="on"?' selected':'')+'>ACCENDI</option><option value="off"'+(c==="off"?' selected':'')+'>SPEGNI</option>'}
 function renderTpRows(){const rows=(tpData.entries||[]);if(!rows.length){tpRows.innerHTML='<div class="small">'+(tpKind==="thermostat"?'Nessuna fascia: fallback inverno 5C.':'Nessuna fascia oraria configurata.')+'</div>';return}if(tpKind==="thermostat"){tpRows.innerHTML=rows.map((e,i)=>'<div class="trb"><div class="tr"><input type="time" value="'+esc(e.from)+'" onchange="tpSet('+i+',\'from\',this.value)"><span>-></span><input type="time" value="'+esc(e.to)+'" onchange="tpSet('+i+',\'to\',this.value)"><input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" enterkeyhint="done" value="'+Number(e.setpoint).toFixed(1)+'" onchange="tpSet('+i+',\'setpoint\',this.value)"><select onchange="tpSet('+i+',\'mode\',this.value)"><option value="winter"'+(e.mode==="winter"?" selected":"")+'>INVERNO</option><option value="summer"'+(e.mode==="summer"?" selected":"")+'>ESTATE</option></select><button class="rm" onclick="tpDel('+i+')">X</button></div><div class="days">'+rowDaysHtml(i,e.days)+'</div></div>').join('');return}tpRows.innerHTML=rows.map((e,i)=>'<div class="trb"><div class="tr"><input type="time" value="'+esc(e.time)+'" onchange="tpSet('+i+',\'time\',this.value)"><select onchange="tpSet('+i+',\'action\',this.value)">'+switchOpts(tpKind,e.action)+'</select><button class="rm" onclick="tpDel('+i+')">X</button></div><div class="days">'+rowDaysHtml(i,e.days)+'</div></div>').join('')}
 function openProfile(kind,id){tpKind=kind;tpId=id;tpTitle.textContent='Profilo Orario - '+id;tpData=kind==="thermostat"?normThermoProfile(profileOf("thermostat",id)):normSwitchProfile(kind,profileOf(kind,id));tpEnabled.checked=!!tpData.enabled;renderTpRows();tpModal.classList.remove('hidden')}
 function closeTProfile(){tpModal.classList.add('hidden');tpId="";tpKind="thermostat";tpData={enabled:false,entries:[]}}
 window.tpSet=(i,key,val)=>{const e=tpData.entries[i];if(!e)return;if(tpKind==="thermostat"){if(key==="from"||key==="to"){e[key]=normTime(val,key==="from"?"00:00":"23:59")}else if(key==="setpoint"){const n=Number(String(val||"").trim().replace(",","."));if(Number.isFinite(n))e.setpoint=clamp(Math.round(n*2)/2,5,30)}else if(key==="mode"){e.mode=normMode(val)}return}if(key==="time"){e.time=normTime(val,"00:00")}else if(key==="action"){e.action=normSwitchEntry(tpKind,{action:val}).action}}
-window.tpDay=(i,d,on)=>{const e=tpData.entries[i];if(!e)return;e.days=patchDays(e.days,d,!!on)}
+window.tpDay=(i,d)=>{const e=tpData.entries[i];if(!e)return;const has=normDays(e.days).includes(d);e.days=patchDays(e.days,d,!has);renderTpRows()}
 window.tpDel=i=>{tpData.entries.splice(i,1);renderTpRows()}
 window.openTProfile=id=>openProfile("thermostat",id);
 window.openLProfile=id=>openProfile("light",id);
