@@ -179,10 +179,11 @@ connect_eth() {
   if nm_active && has_cmd nmcli; then
     nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
     nmcli connection delete algodomoiot-ethernet >/dev/null 2>&1 || true
-    nmcli connection add type ethernet ifname "${iface}" con-name algodomoiot-ethernet >/dev/null
-    nm_set_ipv4 algodomoiot-ethernet
-    nmcli connection modify algodomoiot-ethernet connection.autoconnect yes connection.autoconnect-priority 100 ipv6.method auto >/dev/null
-    nmcli connection up algodomoiot-ethernet >/dev/null
+    nmcli connection delete sheltr-ethernet >/dev/null 2>&1 || true
+    nmcli connection add type ethernet ifname "${iface}" con-name sheltr-ethernet >/dev/null
+    nm_set_ipv4 sheltr-ethernet
+    nmcli connection modify sheltr-ethernet connection.autoconnect yes connection.autoconnect-priority 100 ipv6.method auto >/dev/null
+    nmcli connection up sheltr-ethernet >/dev/null
     return 0
   fi
 
@@ -203,15 +204,16 @@ connect_wifi_nm() {
   nmcli radio wifi on >/dev/null 2>&1 || true
   nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
   nmcli connection delete algodomoiot-wifi >/dev/null 2>&1 || true
-  nmcli connection add type wifi ifname "${iface}" con-name algodomoiot-wifi ssid "${SSID_RAW}" >/dev/null
+  nmcli connection delete sheltr-wifi >/dev/null 2>&1 || true
+  nmcli connection add type wifi ifname "${iface}" con-name sheltr-wifi ssid "${SSID_RAW}" >/dev/null
   if [[ -n "${PASS_RAW}" ]]; then
-    nmcli connection modify algodomoiot-wifi wifi-sec.key-mgmt wpa-psk wifi-sec.psk "${PASS_RAW}" >/dev/null
+    nmcli connection modify sheltr-wifi wifi-sec.key-mgmt wpa-psk wifi-sec.psk "${PASS_RAW}" >/dev/null
   else
-    nmcli connection modify algodomoiot-wifi wifi-sec.key-mgmt none >/dev/null
+    nmcli connection modify sheltr-wifi wifi-sec.key-mgmt none >/dev/null
   fi
-  nm_set_ipv4 algodomoiot-wifi
-  nmcli connection modify algodomoiot-wifi connection.autoconnect yes connection.autoconnect-priority 100 ipv6.method auto >/dev/null
-  nmcli connection up algodomoiot-wifi >/dev/null
+  nm_set_ipv4 sheltr-wifi
+  nmcli connection modify sheltr-wifi connection.autoconnect yes connection.autoconnect-priority 100 ipv6.method auto >/dev/null
+  nmcli connection up sheltr-wifi >/dev/null
 }
 
 connect_wifi_wpa() {
@@ -267,8 +269,8 @@ if [[ "${IP_MODE}" == "static" ]]; then
   fi
 fi
 
-WLAN_IF="${ALGODOMO_WIFI_IFACE:-$(detect_wifi_iface || true)}"
-ETH_IF="${ALGODOMO_ETH_IFACE:-$(detect_eth_iface || true)}"
+WLAN_IF="${SHELTR_WIFI_IFACE:-${ALGODOMO_WIFI_IFACE:-$(detect_wifi_iface || true)}}"
+ETH_IF="${SHELTR_ETH_IFACE:-${ALGODOMO_ETH_IFACE:-$(detect_eth_iface || true)}}"
 
 if [[ "${MODE}" == "wifi" ]]; then
   if [[ -z "${SSID_RAW}" ]]; then

@@ -55,8 +55,8 @@ Esempio:
 
 ## File JSON locali
 
-- Config: `/etc/algodomoiot/config.json` (con systemd)
-- Stato: `/etc/algodomoiot/state.json` (con systemd)
+- Config: `/etc/sheltr/config.json` (con systemd)
+- Stato: `/etc/sheltr/state.json` (con systemd)
 
 In locale (senza systemd):
 
@@ -99,10 +99,10 @@ Server default: `http://localhost`
 
 File inclusi:
 
-- service: `deploy/algodomoiot.service`
+- service: `deploy/sheltr.service`
 - service newt: `deploy/newt.service`
-- service mqtt: `deploy/algodomoiot-mqtt.service`
-- env: `deploy/algodomoiot.env`
+- service mqtt: `deploy/sheltr-mqtt.service`
+- env: `deploy/sheltr.env`
 - env newt: `deploy/newt.env`
 - env mqtt: `deploy/mqtt.env`
 - installer: `install_raspberry.sh`
@@ -110,17 +110,17 @@ File inclusi:
 Installazione:
 
 ```bash
-cd /percorso/algodomoiot
+cd /percorso/sheltr
 sudo ./install_raspberry.sh
 ```
 
 L'installer:
 
-- copia app in `/opt/algodomoiot`
-- crea JSON in `/etc/algodomoiot`
-- abilita/avvia `algodomoiot.service`
+- copia app in `/opt/sheltr`
+- crea JSON in `/etc/sheltr`
+- abilita/avvia `sheltr.service`
 - installa/abilita `newt.service` (avvio effettivo quando `NEWT_ENABLED=1` e credenziali presenti)
-- installa/abilita `algodomoiot-mqtt.service` (avvio effettivo quando `MQTT_ENABLED=1` e parametri validi)
+- installa/abilita `sheltr-mqtt.service` (avvio effettivo quando `MQTT_ENABLED=1` e parametri validi)
 - aggiunge utente servizio al gruppo `dialout` (se presente)
 - disabilita e mette in `mask` `serial-getty@ttyS0.service` e `serial-getty@serial0.service`
 - rimuove la console seriale da `cmdline.txt` (con backup automatico)
@@ -131,3 +131,4 @@ Pagine:
 
 - `http://<IP_RASPBERRY>/` (control)
 - `http://<IP_RASPBERRY>/config`
+- gestione servizi: `sudo sheltr-stack enable-all|disable-all|status`

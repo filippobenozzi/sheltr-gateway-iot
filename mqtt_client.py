@@ -22,7 +22,7 @@ except Exception as exc:  # noqa: BLE001
 else:
     MQTT_IMPORT_ERROR = None
 
-LOGGER = logging.getLogger("algodomoiot-mqtt")
+LOGGER = logging.getLogger("sheltr-mqtt")
 
 
 def bool_env(name: str, default: bool = False) -> bool:
@@ -46,6 +46,17 @@ def int_env(name: str, default: int, min_value: int, max_value: int) -> int:
 def text_env(name: str, default: str = "") -> str:
     value = str(os.environ.get(name, default)).strip()
     return value or default
+
+
+def text_env_any(names: tuple[str, ...], default: str = "") -> str:
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is None:
+            continue
+        value = str(raw).strip()
+        if value:
+            return value
+    return default
 
 
 def slugify(value: str) -> str:
@@ -97,8 +108,8 @@ class SheltrMqttBridge:
         self.poll_interval = int_env("MQTT_POLL_INTERVAL", 30, 2, 3600)
         self.qos = int_env("MQTT_QOS", 0, 0, 2)
         self.retain = bool_env("MQTT_RETAIN", True)
-        self.http_base = text_env("ALGODOMO_HTTP_BASE", "http://127.0.0.1").rstrip("/")
-        self.api_token = text_env("ALGODOMO_TOKEN", "")
+        self.http_base = text_env_any(("SHELTR_HTTP_BASE", "ALGODOMO_HTTP_BASE"), "http://127.0.0.1").rstrip("/")
+        self.api_token = text_env_any(("SHELTR_TOKEN", "ALGODOMO_TOKEN"), "")
 
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -219,7 +230,7 @@ class SheltrMqttBridge:
 
     def _device_payload(self, board: dict[str, Any]) -> dict[str, Any]:
         return {
-            "identifiers": [f"algodomoiot_{board['slug']}"],
+            "identifiers": [f"sheltr_{board['slug']}"],
             "name": board["name"],
             "manufacturer": "Sheltr",
             "model": f"board-{board['kind']}",
@@ -227,7 +238,7 @@ class SheltrMqttBridge:
 
     def _bridge_device_payload(self) -> dict[str, Any]:
         return {
-            "identifiers": ["algodomoiot_mqtt_bridge"],
+            "identifiers": ["sheltr_mqtt_bridge"],
             "name": "Sheltr MQTT",
             "manufacturer": "Sheltr",
             "model": "mqtt-bridge",
@@ -241,7 +252,7 @@ class SheltrMqttBridge:
             device = self._device_payload(board)
             availability = self._availability_topic(board)
             topic_prefix = self._topic_prefix(board)
-            poll_suffix = f"algodomoiot_{board['slug']}_poll"
+            poll_suffix = f"sheltr_{board['slug']}_poll"
             self._publish(
                 f"{self.discovery_prefix}/button/{poll_suffix}/config",
                 {
@@ -256,7 +267,7 @@ class SheltrMqttBridge:
             )
             count += 1
             for channel in board["channels"]:
-                suffix = f"algodomoiot_{board['slug']}_ch{channel}"
+                suffix = f"sheltr_{board['slug']}_ch{channel}"
                 name = f"{board['name']} CH{channel}"
                 if board["kind"] == "light":
                     self._publish(f"{self.discovery_prefix}/switch/{suffix}/config", "", retain=True)
@@ -357,7 +368,7 @@ class SheltrMqttBridge:
             ("restart_all", "Riavvia tutti i servizi", f"{self.base_topic}/service/restart/all/set", "RESTART"),
         ]
         for suffix, name, command_topic, payload_press in bridge_buttons:
-            unique_id = f"algodomoiot_mqtt_{suffix}"
+            unique_id = f"sheltr_mqtt_{suffix}"
             self._publish(
                 f"{self.discovery_prefix}/button/{unique_id}/config",
                 {
@@ -588,7 +599,7 @@ class SheltrMqttBridge:
             LOGGER.info("MQTT disabilitato (MQTT_ENABLED=0)")
             return 0
         if not self.api_token:
-            LOGGER.error("Token API mancante (ALGODOMO_TOKEN)")
+            LOGGER.error("Token API mancante (SHELTR_TOKEN o ALGODOMO_TOKEN)")
             return 2
         self._load_boards()
         self._mqtt.connect_async(self.host, self.port, keepalive=self.keepalive)

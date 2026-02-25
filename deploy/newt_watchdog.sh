@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NEWT_ENV_FILE="${ALGODOMO_NEWT_ENV:-/etc/algodomoiot/newt.env}"
-STATE_DIR="/run/algodomoiot"
+NEWT_ENV_FILE="${SHELTR_NEWT_ENV:-${ALGODOMO_NEWT_ENV:-/etc/sheltr/newt.env}}"
+STATE_DIR="/run/sheltr"
 OFFLINE_MARKER="${STATE_DIR}/newt.offline"
 LAST_RESTART_MARKER="${STATE_DIR}/newt.last_restart"
 ERROR_WINDOW_SEC="${NEWT_WATCHDOG_ERROR_WINDOW_SEC:-120}"

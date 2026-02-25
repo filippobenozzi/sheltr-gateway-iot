@@ -1,4 +1,4 @@
-const C='algodomoiot-v2';
+const C='sheltr-v3';
 const S=['/','/control','/config','/manifest.webmanifest','/icon.svg','/logo.svg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(S)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim();});

@@ -106,11 +106,28 @@ DATA_DIR = ROOT / "data"
 PUBLIC_DIR = ROOT / "public"
 DEFAULT_CONFIG_PATH = DATA_DIR / "config.json"
 DEFAULT_STATE_PATH = DATA_DIR / "state.json"
-CONFIG_PATH = Path(os.environ.get("ALGODOMO_CONFIG", str(DEFAULT_CONFIG_PATH)))
-STATE_PATH = Path(os.environ.get("ALGODOMO_STATE", str(DEFAULT_STATE_PATH)))
-NEWT_ENV_PATH = Path(os.environ.get("ALGODOMO_NEWT_ENV", "/etc/algodomoiot/newt.env"))
-MQTT_ENV_PATH = Path(os.environ.get("ALGODOMO_MQTT_ENV", "/etc/algodomoiot/mqtt.env"))
-ADMIN_CONTROL_SCRIPT = os.environ.get("ALGODOMO_ADMIN_SCRIPT", "/usr/local/lib/algodomoiot-admin/admin_control.sh")
+
+
+def env_first(*names: str, default: str) -> str:
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is None:
+            continue
+        value = str(raw).strip()
+        if value:
+            return value
+    return default
+
+
+CONFIG_PATH = Path(env_first("SHELTR_CONFIG", "ALGODOMO_CONFIG", default=str(DEFAULT_CONFIG_PATH)))
+STATE_PATH = Path(env_first("SHELTR_STATE", "ALGODOMO_STATE", default=str(DEFAULT_STATE_PATH)))
+NEWT_ENV_PATH = Path(env_first("SHELTR_NEWT_ENV", "ALGODOMO_NEWT_ENV", default="/etc/sheltr/newt.env"))
+MQTT_ENV_PATH = Path(env_first("SHELTR_MQTT_ENV", "ALGODOMO_MQTT_ENV", default="/etc/sheltr/mqtt.env"))
+ADMIN_CONTROL_SCRIPT = env_first(
+    "SHELTR_ADMIN_SCRIPT",
+    "ALGODOMO_ADMIN_SCRIPT",
+    default="/usr/local/lib/sheltr-admin/admin_control.sh",
+)
 
 BAUD_MAP = {
     1200: termios.B1200,
@@ -800,7 +817,9 @@ def sync_mqtt_env(cfg: dict[str, Any]) -> None:
         f"MQTT_POLL_INTERVAL={poll_interval}",
         f"MQTT_QOS={qos}",
         f"MQTT_RETAIN={retain}",
+        'SHELTR_HTTP_BASE="http://127.0.0.1"',
         'ALGODOMO_HTTP_BASE="http://127.0.0.1"',
+        f'SHELTR_TOKEN="{env_escape(token)}"',
         f'ALGODOMO_TOKEN="{env_escape(token)}"',
     ]
     write_text_atomic(MQTT_ENV_PATH, "\n".join(lines) + "\n")
@@ -835,7 +854,7 @@ def mqtt_should_run(cfg: dict[str, Any]) -> bool:
 
 def sync_mqtt_runtime_state(current_cfg: dict[str, Any], previous_cfg: dict[str, Any] | None = None) -> None:
     should_run = mqtt_should_run(current_cfg)
-    status = service_status("algodomoiot-mqtt.service")
+    status = service_status("sheltr-mqtt.service")
     is_active = status in {"active", "activating", "reloading"}
 
     mqtt_changed = False
@@ -947,9 +966,9 @@ def system_info() -> dict[str, Any]:
         "ips": ips,
         "interfaces": interfaces,
         "services": {
-            "app": service_status("algodomoiot.service"),
+            "app": service_status("sheltr.service"),
             "newt": service_status("newt.service"),
-            "mqtt": service_status("algodomoiot-mqtt.service"),
+            "mqtt": service_status("sheltr-mqtt.service"),
         },
     }
 
@@ -1934,9 +1953,9 @@ def api_system_info() -> dict[str, Any]:
 
 def api_admin_restart(query: dict[str, list[str]]) -> dict[str, Any]:
     service = normalize_text(query_value(query, "service"), "").lower()
-    if service in {"app", "algodomoiot", "algodomoiot.service"}:
+    if service in {"app", "sheltr", "sheltr.service", "algodomoiot", "algodomoiot.service"}:
         action = "restart-app"
-        label = "algodomoiot.service"
+        label = "sheltr.service"
     elif service in {"newt", "newt.service"}:
         cfg = get_config()
         newt = as_dict(cfg.get("newt"))
@@ -1948,7 +1967,7 @@ def api_admin_restart(query: dict[str, list[str]]) -> dict[str, Any]:
             raise ValueError("newt non configurato: abilita NEWT e compila ID/SECRET/ENDPOINT in /config")
         action = "restart-newt"
         label = "newt.service"
-    elif service in {"mqtt", "algodomoiot-mqtt", "algodomoiot-mqtt.service"}:
+    elif service in {"mqtt", "algodomoiot-mqtt", "algodomoiot-mqtt.service", "sheltr-mqtt", "sheltr-mqtt.service"}:
         cfg = get_config()
         mqtt_cfg = as_dict(cfg.get("mqtt"))
         enabled = bool_value(mqtt_cfg.get("enabled"))
@@ -1958,10 +1977,10 @@ def api_admin_restart(query: dict[str, list[str]]) -> dict[str, Any]:
         if not enabled or not host or not base_topic or not token:
             raise ValueError("mqtt non configurato: abilita MQTT e compila host/base topic/token in /config")
         action = "restart-mqtt"
-        label = "algodomoiot-mqtt.service"
+        label = "sheltr-mqtt.service"
     elif service in {"all", "tutti", "stack"}:
         action = "restart-all"
-        label = "algodomoiot.service,newt.service,algodomoiot-mqtt.service"
+        label = "sheltr.service,newt.service,sheltr-mqtt.service"
     else:
         raise ValueError("service non valido: usa app, newt, mqtt o all")
 

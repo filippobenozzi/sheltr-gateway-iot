@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="algodomoiot"
+APP_NAME="sheltr"
 APP_SERVICE="${APP_NAME}.service"
 NEWT_SERVICE="newt.service"
-MQTT_SERVICE="algodomoiot-mqtt.service"
+MQTT_SERVICE="sheltr-mqtt.service"
 WATCHDOG_SERVICE="newt-watchdog.service"
 WATCHDOG_TIMER="newt-watchdog.timer"
+LEGACY_APP_SERVICE="algodomoiot.service"
+LEGACY_MQTT_SERVICE="algodomoiot-mqtt.service"
 SYSTEMD_DIR="/etc/systemd/system"
-ADMIN_DIR="/usr/local/lib/algodomoiot-admin"
+ADMIN_DIR="/usr/local/lib/sheltr-admin"
 NEWT_ENV_FILE="/etc/${APP_NAME}/newt.env"
 MQTT_ENV_FILE="/etc/${APP_NAME}/mqtt.env"
-DEPLOY_DIR="${ALGODOMO_DEPLOY_DIR:-/opt/${APP_NAME}/deploy}"
+DEPLOY_DIR="${SHELTR_DEPLOY_DIR:-${ALGODOMO_DEPLOY_DIR:-/opt/${APP_NAME}/deploy}}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ ! -f "${DEPLOY_DIR}/algodomoiot.service" ]]; then
-  if [[ -f "${SCRIPT_DIR}/algodomoiot.service" ]]; then
+if [[ ! -f "${DEPLOY_DIR}/sheltr.service" ]]; then
+  if [[ -f "${SCRIPT_DIR}/sheltr.service" ]]; then
     DEPLOY_DIR="${SCRIPT_DIR}"
-  elif [[ -f "${SCRIPT_DIR}/../deploy/algodomoiot.service" ]]; then
+  elif [[ -f "${SCRIPT_DIR}/../deploy/sheltr.service" ]]; then
     DEPLOY_DIR="$(cd "${SCRIPT_DIR}/../deploy" && pwd)"
   fi
 fi
@@ -31,9 +33,9 @@ need_root() {
 
 ensure_deploy_files() {
   local required=(
-    "algodomoiot.service"
+    "sheltr.service"
     "newt.service"
-    "algodomoiot-mqtt.service"
+    "sheltr-mqtt.service"
     "newt-watchdog.service"
     "newt-watchdog.timer"
     "admin_control.sh"
@@ -61,9 +63,9 @@ is_newt_configured() {
 install_runtime_files() {
   ensure_deploy_files
   mkdir -p "${ADMIN_DIR}"
-  install -m 644 "${DEPLOY_DIR}/algodomoiot.service" "${SYSTEMD_DIR}/${APP_SERVICE}"
+  install -m 644 "${DEPLOY_DIR}/sheltr.service" "${SYSTEMD_DIR}/${APP_SERVICE}"
   install -m 644 "${DEPLOY_DIR}/newt.service" "${SYSTEMD_DIR}/${NEWT_SERVICE}"
-  install -m 644 "${DEPLOY_DIR}/algodomoiot-mqtt.service" "${SYSTEMD_DIR}/${MQTT_SERVICE}"
+  install -m 644 "${DEPLOY_DIR}/sheltr-mqtt.service" "${SYSTEMD_DIR}/${MQTT_SERVICE}"
   install -m 644 "${DEPLOY_DIR}/newt-watchdog.service" "${SYSTEMD_DIR}/${WATCHDOG_SERVICE}"
   install -m 644 "${DEPLOY_DIR}/newt-watchdog.timer" "${SYSTEMD_DIR}/${WATCHDOG_TIMER}"
   install -m 750 "${DEPLOY_DIR}/admin_control.sh" "${ADMIN_DIR}/admin_control.sh"
@@ -77,7 +79,7 @@ is_mqtt_configured() {
   grep -q '^MQTT_ENABLED=1' "${MQTT_ENV_FILE}" \
     && grep -q '^MQTT_HOST="[^"]\+"' "${MQTT_ENV_FILE}" \
     && grep -q '^MQTT_BASE_TOPIC="[^"]\+"' "${MQTT_ENV_FILE}" \
-    && grep -q '^ALGODOMO_TOKEN="[^"]\+"' "${MQTT_ENV_FILE}"
+    && (grep -q '^SHELTR_TOKEN="[^"]\+"' "${MQTT_ENV_FILE}" || grep -q '^ALGODOMO_TOKEN="[^"]\+"' "${MQTT_ENV_FILE}")
 }
 
 lock_serial_for_app() {
@@ -105,6 +107,9 @@ print_status() {
 enable_all() {
   install_runtime_files
   lock_serial_for_app
+  systemctl disable --now "${LEGACY_APP_SERVICE}" >/dev/null 2>&1 || true
+  systemctl disable --now "${LEGACY_MQTT_SERVICE}" >/dev/null 2>&1 || true
+  rm -f "${SYSTEMD_DIR}/${LEGACY_APP_SERVICE}" "${SYSTEMD_DIR}/${LEGACY_MQTT_SERVICE}"
   systemctl daemon-reload
   systemctl enable --now "${APP_SERVICE}"
   systemctl enable "${NEWT_SERVICE}"
@@ -130,6 +135,8 @@ disable_all() {
   systemctl disable --now "${MQTT_SERVICE}" >/dev/null 2>&1 || true
   systemctl disable --now "${NEWT_SERVICE}" >/dev/null 2>&1 || true
   systemctl disable --now "${APP_SERVICE}" >/dev/null 2>&1 || true
+  systemctl disable --now "${LEGACY_MQTT_SERVICE}" >/dev/null 2>&1 || true
+  systemctl disable --now "${LEGACY_APP_SERVICE}" >/dev/null 2>&1 || true
   echo "Disattivazione completata (app/newt/mqtt/watchdog)."
   print_status
 }

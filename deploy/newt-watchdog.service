@@ -5,4 +5,4 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/lib/algodomoiot-admin/newt_watchdog.sh
+ExecStart=/usr/local/lib/sheltr-admin/newt_watchdog.sh

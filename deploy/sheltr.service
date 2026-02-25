@@ -6,23 +6,24 @@ Conflicts=serial-getty@ttyS0.service serial-getty@serial0.service
 
 [Service]
 Type=simple
-User=algodomoiot
-Group=algodomoiot
+User=sheltr
+Group=sheltr
 PermissionsStartOnly=true
-WorkingDirectory=/opt/algodomoiot
+WorkingDirectory=/opt/sheltr
+EnvironmentFile=-/etc/default/sheltr
 EnvironmentFile=-/etc/default/algodomoiot
 Environment=HOST=0.0.0.0
 Environment=PORT=80
-Environment=ALGODOMO_CONFIG=/etc/algodomoiot/config.json
-Environment=ALGODOMO_STATE=/etc/algodomoiot/state.json
-Environment=ALGODOMO_NEWT_ENV=/etc/algodomoiot/newt.env
-Environment=ALGODOMO_MQTT_ENV=/etc/algodomoiot/mqtt.env
-Environment=ALGODOMO_ADMIN_SCRIPT=/usr/local/lib/algodomoiot-admin/admin_control.sh
+Environment=SHELTR_CONFIG=/etc/sheltr/config.json
+Environment=SHELTR_STATE=/etc/sheltr/state.json
+Environment=SHELTR_NEWT_ENV=/etc/sheltr/newt.env
+Environment=SHELTR_MQTT_ENV=/etc/sheltr/mqtt.env
+Environment=SHELTR_ADMIN_SCRIPT=/usr/local/lib/sheltr-admin/admin_control.sh
 ExecStartPre=-/usr/bin/systemctl stop serial-getty@ttyS0.service
 ExecStartPre=-/usr/bin/systemctl stop serial-getty@serial0.service
 ExecStartPre=/bin/sh -c 'if command -v fuser >/dev/null 2>&1; then fuser -k /dev/ttyS0 >/dev/null 2>&1 || true; fi'
 ExecStartPre=/bin/sh -c 'if [ -e /dev/serial0 ] && command -v fuser >/dev/null 2>&1; then fuser -k /dev/serial0 >/dev/null 2>&1 || true; fi'
-ExecStart=/usr/bin/python3 /opt/algodomoiot/app.py
+ExecStart=/usr/bin/python3 /opt/sheltr/app.py
 Restart=always
 RestartSec=2
 AmbientCapabilities=CAP_NET_BIND_SERVICE
