@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>AlgoDomo Control</title>
-<meta name="theme-color" content="#1e3a57">
+<meta name="theme-color" content="#191919">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -13,7 +13,9 @@
 :root{--bg:#191919;--section:#202020;--fg:#f0efed;--muted:#bcbab6;--bd:#bcbab6;--s1:4px;--s2:8px;--s3:12px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,Monaco,Liberation Mono,monospace}
 *{box-sizing:border-box}
 body{margin:0;padding:var(--s3);min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:13px/1.35 var(--mono)}
-h1{font-size:17px;margin:0 0 var(--s1)}
+.brand{display:flex;align-items:center;gap:var(--s2);margin:0 0 var(--s1)}
+.logo{width:28px;height:28px;display:block;flex:0 0 28px}
+h1{font-size:17px;margin:0}
 #now{margin:0 0 var(--s2)}
 #top,#bulk{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin:0 0 var(--s2)}
 #bulk{display:none}
@@ -70,7 +72,7 @@ input,select{border:1px solid var(--bd);border-radius:6px;padding:6px;background
 </style>
 </head>
 <body>
-<h1 id="pageTitle">Controllo Casa</h1>
+<div class="brand"><img class="logo" src="/logo.svg" alt="Logo"><h1 id="pageTitle">Controllo Casa</h1></div>
 <div class="small" id="now"></div>
 <div id="top"><button id="refresh">Aggiorna</button><span class="small" id="last"></span></div>
 <div id="bulk"><button id="allLightsOff">Spegni tutte le luci</button><button id="allShuttersDown">Tapparelle GIU tutte</button></div>

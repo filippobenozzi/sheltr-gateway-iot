@@ -8,7 +8,12 @@
 :root{--bg:#191919;--section:#202020;--fg:#f0efed;--muted:#bcbab6;--bd:#bcbab6;--s1:4px;--s2:8px;--s3:12px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,Monaco,Liberation Mono,monospace}
 *{box-sizing:border-box}
 body{font:13px/1.35 var(--mono);margin:0;padding:var(--s3);min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--fg)}
-h1{font-size:17px;margin:0 0 var(--s2)}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);flex-wrap:wrap;margin:0 0 var(--s2)}
+.brand{display:flex;align-items:center;gap:var(--s2)}
+.logo{width:28px;height:28px;display:block;flex:0 0 28px}
+h1{font-size:17px;margin:0}
+.dashlnk{color:var(--fg);text-decoration:none;border:1px solid var(--bd);border-radius:6px;padding:6px 10px;background:var(--section);font:12px/1.2 var(--mono)}
+.dashlnk:hover{background:#2b2b2b}
 .st{font-size:13px;margin:0 0 var(--s2);color:var(--muted)}
 .row{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:flex-end;margin:var(--s2) 0}
 .btns{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center}
@@ -45,7 +50,7 @@ button:disabled{opacity:.6;cursor:not-allowed}
 </style>
 </head>
 <body>
-<h1>Programmazione Schede</h1>
+<div class="topbar"><div class="brand"><img class="logo" src="/logo.svg" alt="Logo"><h1>Programmazione Schede</h1></div><a class="dashlnk" href="/">← Dashboard</a></div>
 <div class="box">
 <h2 class="st">Generale</h2>
 <div class="row">

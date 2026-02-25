@@ -2057,6 +2057,14 @@ class AlgoHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if self.command == "GET" and path == "/logo.svg":
+                self._serve_file(
+                    PUBLIC_DIR / "logo.svg",
+                    "image/svg+xml; charset=utf-8",
+                    "public, max-age=31536000, immutable",
+                )
+                return
+
             if self.command == "GET" and path == "/health":
                 self._json(HTTPStatus.OK, {"ok": True})
                 return

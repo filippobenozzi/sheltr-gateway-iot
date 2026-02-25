@@ -1,5 +1,5 @@
-const C='algodomoiot-v1';
-const S=['/','/control','/manifest.webmanifest','/icon.svg'];
+const C='algodomoiot-v2';
+const S=['/','/control','/config','/manifest.webmanifest','/icon.svg','/logo.svg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(S)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{
