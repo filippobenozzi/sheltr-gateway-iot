@@ -89,17 +89,27 @@ def default_bridge_label(prefix: str) -> str:
 
 
 def default_client_id(prefix: str) -> str:
-    return "sheltr" if str(prefix or "").strip().upper() == "MQTT" else "sheltr-cloud"
+    return "sheltr" if str(prefix or "").strip().upper() == "MQTT" else "sheltr-mini"
 
 
 def default_base_topic(prefix: str) -> str:
-    return "sheltr" if str(prefix or "").strip().upper() == "MQTT" else "dr154"
+    return "sheltr" if str(prefix or "").strip().upper() == "MQTT" else "sheltr-mini"
 
 
 def logger_name_for_bridge() -> str:
     prefix = str(os.environ.get("SHELTR_MQTT_PREFIX", "MQTT")).strip().upper() or "MQTT"
     fallback = "sheltr-mqtt" if prefix == "MQTT" else "sheltr-cloud"
     return text_env("SHELTR_MQTT_LOGGER", fallback)
+
+
+def cloud_device_meta() -> dict[str, str]:
+    return {
+        "type": "sheltr_mini",
+        "label": "Sheltr Mini",
+        "module": "SHELTR_MINI",
+        "transport": "mqtt_json",
+        "defaultPayloadFormat": "json",
+    }
 
 
 LOGGER = logging.getLogger(logger_name_for_bridge())
@@ -214,17 +224,17 @@ class SheltrMqttBridge:
         self.config_topic = text_env_prefixed(
             self.env_prefix,
             "CONFIG_TOPIC",
-            f"{self.base_topic}/{self.instance_id}/config",
+            f"{self.base_topic}/config",
         ).strip("/")
         self.command_topic = text_env_prefixed(
             self.env_prefix,
             "COMMAND_TOPIC",
-            f"{self.base_topic}/{self.instance_id}/cmd/light",
+            f"{self.base_topic}/cmd",
         ).strip("/")
         self.response_topic = text_env_prefixed(
             self.env_prefix,
             "RESPONSE_TOPIC",
-            f"{self.base_topic}/{self.instance_id}/pub/light",
+            f"{self.base_topic}/pub",
         ).strip("/")
         self.payload_format = text_env_prefixed(self.env_prefix, "PAYLOAD_FORMAT", "frame_hex_space_crlf").lower()
         if self.payload_format not in LIGHT_PAYLOAD_FORMATS:
@@ -374,6 +384,7 @@ class SheltrMqttBridge:
         with self._lock:
             boards = list(self._boards)
         payload_boards: list[dict[str, Any]] = []
+        payload_devices: list[dict[str, Any]] = []
         for board in boards:
             channels = list(board.get("channelMeta") or [])
             if not channels:
@@ -389,12 +400,31 @@ class SheltrMqttBridge:
                     "channels": channels,
                 }
             )
+            for channel in channels:
+                payload_devices.append(
+                    {
+                        "id": f"{board['id']}-c{channel['channel']}",
+                        "kind": board["kind"],
+                        "boardId": board["id"],
+                        "boardName": board["name"],
+                        "address": board["address"],
+                        "channel": channel["channel"],
+                        "name": channel["name"],
+                        "room": channel["room"],
+                    }
+                )
+        device_meta = cloud_device_meta()
         return {
             "id": self.instance_id,
             "name": self.instance_name,
+            "deviceType": device_meta["type"],
+            "device": device_meta,
             "protocolVersion": "1.6",
             "boards": payload_boards,
+            "devices": payload_devices,
             "mqtt": {
+                "baseTopic": self.base_topic,
+                "configTopic": self.config_topic,
                 "lightCommandTopic": self.command_topic,
                 "lightResponseTopic": self.response_topic,
                 "lightPayloadFormat": self.payload_format,

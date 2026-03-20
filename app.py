@@ -402,8 +402,9 @@ def default_config() -> dict[str, Any]:
             "port": 1883,
             "username": "",
             "password": "",
-            "clientId": "sheltr-cloud",
-            "baseTopic": "dr154",
+            "id": "sheltr-mini",
+            "clientId": "sheltr-mini",
+            "baseTopic": "sheltr-mini",
             "instanceId": "sheltr-mini",
             "instanceName": "Controllo Casa",
             "keepalive": 60,
@@ -650,6 +651,34 @@ def normalize_bridge_config(raw_cfg: dict[str, Any], defaults: dict[str, Any], *
     return payload
 
 
+def normalize_cloud_config(raw_cfg: dict[str, Any], defaults: dict[str, Any], display_name: str) -> dict[str, Any]:
+    cloud_id = normalize_id(
+        raw_cfg.get("id"),
+        normalize_id(
+            raw_cfg.get("instanceId") or raw_cfg.get("clientId") or raw_cfg.get("baseTopic"),
+            defaults["id"],
+        ),
+    )
+    bridge_raw = dict(raw_cfg)
+    bridge_raw["clientId"] = cloud_id
+    bridge_raw["baseTopic"] = cloud_id
+    payload = normalize_bridge_config(
+        bridge_raw,
+        {
+            **defaults,
+            "clientId": defaults["id"],
+            "baseTopic": defaults["id"],
+        },
+        with_discovery=False,
+    )
+    payload["id"] = cloud_id
+    payload["clientId"] = cloud_id
+    payload["baseTopic"] = cloud_id
+    payload["instanceId"] = cloud_id
+    payload["instanceName"] = normalize_text(raw_cfg.get("instanceName"), display_name)
+    return payload
+
+
 def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
@@ -741,11 +770,12 @@ def normalize_config(raw: Any) -> dict[str, Any]:
 
     display_name = normalize_text(raw.get("displayName"), defaults["displayName"])
     cloud_defaults = copy.deepcopy(defaults["cloud"])
-    cloud_defaults["instanceId"] = normalize_id(display_name, defaults["cloud"]["instanceId"])
+    cloud_defaults["id"] = normalize_id(display_name, defaults["cloud"]["id"])
+    cloud_defaults["instanceId"] = cloud_defaults["id"]
+    cloud_defaults["clientId"] = cloud_defaults["id"]
+    cloud_defaults["baseTopic"] = cloud_defaults["id"]
     cloud_defaults["instanceName"] = display_name
-    cloud_cfg = normalize_bridge_config(cloud_raw, cloud_defaults, with_discovery=False)
-    cloud_cfg["instanceId"] = normalize_id(cloud_raw.get("instanceId"), cloud_defaults["instanceId"])
-    cloud_cfg["instanceName"] = normalize_text(cloud_raw.get("instanceName"), cloud_defaults["instanceName"])
+    cloud_cfg = normalize_cloud_config(cloud_raw, cloud_defaults, display_name)
 
     return {
         "serial": {
@@ -876,12 +906,19 @@ def bridge_runtime_payload(cfg: dict[str, Any], key: str, *, with_discovery: boo
 def cloud_bridge_meta(cfg: dict[str, Any]) -> dict[str, str]:
     cloud_cfg = as_dict(cfg.get("cloud"))
     display_name = normalize_text(cfg.get("displayName"), default_config()["displayName"])
-    base_topic = normalize_topic(cloud_cfg.get("baseTopic"), "dr154")
-    instance_id = normalize_id(cloud_cfg.get("instanceId"), normalize_id(display_name, "sheltr-mini"))
+    cloud_id = normalize_id(
+        cloud_cfg.get("id"),
+        normalize_id(
+            cloud_cfg.get("instanceId") or cloud_cfg.get("clientId") or cloud_cfg.get("baseTopic"),
+            normalize_id(display_name, "sheltr-mini"),
+        ),
+    )
+    base_topic = cloud_id
+    instance_id = cloud_id
     instance_name = normalize_text(cloud_cfg.get("instanceName"), display_name)
-    command_topic = f"{base_topic}/{instance_id}/cmd/light"
-    response_topic = f"{base_topic}/{instance_id}/pub/light"
-    config_topic = f"{base_topic}/{instance_id}/config"
+    command_topic = f"{base_topic}/cmd"
+    response_topic = f"{base_topic}/pub"
+    config_topic = f"{base_topic}/config"
     return {
         "instanceId": instance_id,
         "instanceName": instance_name,
@@ -2615,10 +2652,13 @@ def api_admin_restart(query: dict[str, list[str]]) -> dict[str, Any]:
         cloud_cfg = as_dict(cfg.get("cloud"))
         enabled = bool_value(cloud_cfg.get("enabled"))
         host = normalize_text(cloud_cfg.get("host"), "")
-        base_topic = normalize_topic(cloud_cfg.get("baseTopic"), "sheltr-cloud")
+        cloud_id = normalize_id(
+            cloud_cfg.get("id"),
+            normalize_id(cloud_cfg.get("instanceId") or cloud_cfg.get("clientId") or cloud_cfg.get("baseTopic"), "sheltr-mini"),
+        )
         token = normalize_text(cfg.get("apiToken"), "")
-        if not enabled or not host or not base_topic or not token:
-            raise ValueError("cloud non configurato: abilita Sheltr Cloud e compila host/base topic/token in /config")
+        if not enabled or not host or not cloud_id or not token:
+            raise ValueError("cloud non configurato: abilita Sheltr Cloud e compila host/id/token in /config")
         action = "restart-cloud"
         label = "sheltr-cloud.service"
     elif service in {"all", "tutti", "stack"}:
