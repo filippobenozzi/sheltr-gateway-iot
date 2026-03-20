@@ -25,7 +25,7 @@ Da `/config` ora puoi programmare tutto senza editare JSON manualmente:
 - nome e stanza di ogni canale
 - parametri `newt` (`enabled`, `id`, `secret`, `endpoint`)
 - parametri `mqtt` (`enabled`, broker, topic, discovery, polling, auth)
-- parametri `cloud` (`enabled`, broker remoto, topic, polling, auth)
+- parametri `cloud` (`enabled`, broker remoto, `instanceId`, `instanceName`, topic base `dr154`, polling, auth)
 - parametri `rtc` (`enabled`, `model`, `bus`, `address`)
 - rete Raspberry (`mode` ethernet/wifi + credenziali wifi)
 - pulsanti di manutenzione: restart servizio, restart newt, restart mqtt, restart cloud, applica rete
@@ -134,6 +134,12 @@ L'installer:
 - aggiunge utente servizio al gruppo `dialout` (se presente)
 - disabilita e mette in `mask` `serial-getty@ttyS0.service` e `serial-getty@serial0.service`
 - rimuove la console seriale da `cmdline.txt` (con backup automatico)
+
+Per Sheltr Cloud, il bridge pubblica anche una configurazione MQTT retained con stanze e canali su:
+
+- `dr154/<istanza>/config`
+- comandi raw: `dr154/<istanza>/cmd/light`
+- risposta frame: `dr154/<istanza>/pub/light`
 
 Se l'installer modifica `cmdline.txt`, a fine installazione segnala di fare reboot.
 

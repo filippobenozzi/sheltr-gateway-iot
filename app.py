@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import select
 import shutil
 import socket
@@ -402,7 +403,9 @@ def default_config() -> dict[str, Any]:
             "username": "",
             "password": "",
             "clientId": "sheltr-cloud",
-            "baseTopic": "sheltr-cloud",
+            "baseTopic": "dr154",
+            "instanceId": "sheltr-mini",
+            "instanceName": "Controllo Casa",
             "keepalive": 60,
             "pollIntervalSec": 30,
             "qos": 0,
@@ -736,13 +739,21 @@ def normalize_config(raw: Any) -> dict[str, Any]:
     if not boards:
         boards = copy.deepcopy(defaults["boards"])
 
+    display_name = normalize_text(raw.get("displayName"), defaults["displayName"])
+    cloud_defaults = copy.deepcopy(defaults["cloud"])
+    cloud_defaults["instanceId"] = normalize_id(display_name, defaults["cloud"]["instanceId"])
+    cloud_defaults["instanceName"] = display_name
+    cloud_cfg = normalize_bridge_config(cloud_raw, cloud_defaults, with_discovery=False)
+    cloud_cfg["instanceId"] = normalize_id(cloud_raw.get("instanceId"), cloud_defaults["instanceId"])
+    cloud_cfg["instanceName"] = normalize_text(cloud_raw.get("instanceName"), cloud_defaults["instanceName"])
+
     return {
         "serial": {
             "port": normalize_text(serial_raw.get("port"), defaults["serial"]["port"]),
             "baudrate": clamp_int(to_number(serial_raw.get("baudrate"), defaults["serial"]["baudrate"]), 1200, 115200),
             "timeoutMs": to_timeout(serial_raw.get("timeoutMs"), defaults["serial"]["timeoutMs"]),
         },
-        "displayName": normalize_text(raw.get("displayName"), defaults["displayName"]),
+        "displayName": display_name,
         "apiToken": normalize_text(raw.get("apiToken"), defaults["apiToken"]),
         "newt": {
             "enabled": bool_value(newt_raw.get("enabled")),
@@ -751,7 +762,7 @@ def normalize_config(raw: Any) -> dict[str, Any]:
             "endpoint": normalize_text(newt_raw.get("endpoint"), defaults["newt"]["endpoint"]),
         },
         "mqtt": normalize_bridge_config(mqtt_raw, defaults["mqtt"], with_discovery=True),
-        "cloud": normalize_bridge_config(cloud_raw, defaults["cloud"], with_discovery=False),
+        "cloud": cloud_cfg,
         "rtc": {
             "enabled": bool_value(rtc_raw.get("enabled")),
             "model": normalize_rtc_model(rtc_raw.get("model"), defaults["rtc"]["model"]),
@@ -862,6 +873,25 @@ def bridge_runtime_payload(cfg: dict[str, Any], key: str, *, with_discovery: boo
     return payload
 
 
+def cloud_bridge_meta(cfg: dict[str, Any]) -> dict[str, str]:
+    cloud_cfg = as_dict(cfg.get("cloud"))
+    display_name = normalize_text(cfg.get("displayName"), default_config()["displayName"])
+    base_topic = normalize_topic(cloud_cfg.get("baseTopic"), "dr154")
+    instance_id = normalize_id(cloud_cfg.get("instanceId"), normalize_id(display_name, "sheltr-mini"))
+    instance_name = normalize_text(cloud_cfg.get("instanceName"), display_name)
+    command_topic = f"{base_topic}/{instance_id}/cmd/light"
+    response_topic = f"{base_topic}/{instance_id}/pub/light"
+    config_topic = f"{base_topic}/{instance_id}/config"
+    return {
+        "instanceId": instance_id,
+        "instanceName": instance_name,
+        "configTopic": config_topic,
+        "commandTopic": command_topic,
+        "responseTopic": response_topic,
+        "payloadFormat": "frame_hex_space_crlf",
+    }
+
+
 def sync_newt_env(cfg: dict[str, Any]) -> None:
     newt = as_dict(cfg.get("newt"))
     endpoint = normalize_text(newt.get("endpoint"), "https://app.pangolin.net")
@@ -965,6 +995,7 @@ def sync_mqtt_runtime_state(current_cfg: dict[str, Any], previous_cfg: dict[str,
 def sync_cloud_env(cfg: dict[str, Any]) -> None:
     cloud_cfg = as_dict(cfg.get("cloud"))
     token = normalize_text(cfg.get("apiToken"), "")
+    cloud_meta = cloud_bridge_meta(cfg)
     lines = bridge_env_lines(
         "CLOUD_MQTT",
         cloud_cfg,
@@ -972,11 +1003,23 @@ def sync_cloud_env(cfg: dict[str, Any]) -> None:
         bridge_name="Sheltr Cloud",
         discovery_enabled=False,
     )
+    lines.extend(
+        [
+            f'CLOUD_MQTT_INSTANCE_ID="{env_escape(cloud_meta["instanceId"])}"',
+            f'CLOUD_MQTT_INSTANCE_NAME="{env_escape(cloud_meta["instanceName"])}"',
+            f'CLOUD_MQTT_CONFIG_TOPIC="{env_escape(cloud_meta["configTopic"])}"',
+            f'CLOUD_MQTT_COMMAND_TOPIC="{env_escape(cloud_meta["commandTopic"])}"',
+            f'CLOUD_MQTT_RESPONSE_TOPIC="{env_escape(cloud_meta["responseTopic"])}"',
+            f'CLOUD_MQTT_PAYLOAD_FORMAT="{env_escape(cloud_meta["payloadFormat"])}"',
+        ]
+    )
     write_text_atomic(CLOUD_ENV_PATH, "\n".join(lines) + "\n")
 
 
 def cloud_runtime_payload(cfg: dict[str, Any]) -> dict[str, Any]:
-    return bridge_runtime_payload(cfg, "cloud", with_discovery=False)
+    payload = bridge_runtime_payload(cfg, "cloud", with_discovery=False)
+    payload.update(cloud_bridge_meta(cfg))
+    return payload
 
 
 def cloud_should_run(cfg: dict[str, Any]) -> bool:
@@ -1400,6 +1443,26 @@ def parse_frame(frame: bytes) -> dict[str, Any]:
         "end": frame[13],
         "hex": " ".join(to_hex(byte) for byte in frame),
     }
+
+
+def parse_raw_frame_payload(value: Any) -> bytes:
+    text = normalize_text(value, "")
+    if not text:
+        raise ValueError("payload frame mancante")
+    tokens = re.findall(r"[0-9A-Fa-f]{2}", text)
+    if not tokens:
+        raise ValueError("payload frame non valido")
+    values = bytes(int(token, 16) for token in tokens)
+    frame = extract_first_frame(values)
+    if frame is None:
+        compact = re.sub(r"[^0-9A-Fa-f]", "", text)
+        if len(compact) < FRAME_LEN * 2 or len(compact) % 2 != 0:
+            raise ValueError("payload frame non valido")
+        compact_bytes = bytes(int(compact[idx : idx + 2], 16) for idx in range(0, len(compact), 2))
+        frame = extract_first_frame(compact_bytes)
+    if frame is None:
+        raise ValueError("frame protocollo non valido")
+    return frame
 
 
 def byte_options(value: int | list[int] | tuple[int, ...] | set[int]) -> list[int]:
@@ -2486,6 +2549,27 @@ def api_program_address(query: dict[str, list[str]]) -> dict[str, Any]:
     }
 
 
+def api_raw_frame(query: dict[str, list[str]]) -> dict[str, Any]:
+    payload = parse_raw_frame_payload(query_value(query, "payload") or query_value(query, "frame"))
+    request_hex = " ".join(to_hex(byte) for byte in payload)
+    request_frame = parse_frame(payload)
+    request_address = to_address(request_frame.get("address"), -1)
+    response = send_raw(
+        payload,
+        expect_frame=True,
+        frame_validator=(lambda frame: frame_matches(frame, address=request_address)) if request_address >= 0 else None,
+        frame_expectation=describe_expected_frame(address=request_address) if request_address >= 0 else "",
+    )
+    if not isinstance(response, dict):
+        raise RuntimeError("Risposta frame non valida")
+    return {
+        "ok": True,
+        "requestHex": request_hex,
+        "responseHex": normalize_text(response.get("hex"), ""),
+        "response": response,
+    }
+
+
 def api_system_info() -> dict[str, Any]:
     cfg = get_config()
     return {
@@ -2744,6 +2828,10 @@ class AlgoHandler(BaseHTTPRequestHandler):
 
                 if path == "/api/cmd/program-address":
                     self._json(HTTPStatus.OK, api_program_address(query))
+                    return
+
+                if path == "/api/cmd/raw-frame":
+                    self._json(HTTPStatus.OK, api_raw_frame(query))
                     return
 
                 if path == "/api/admin/restart":

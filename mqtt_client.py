@@ -22,6 +22,17 @@ except Exception as exc:  # noqa: BLE001
 else:
     MQTT_IMPORT_ERROR = None
 
+FRAME_START = 0x49
+FRAME_END = 0x46
+FRAME_LEN = 14
+LIGHT_PAYLOAD_FORMATS = {
+    "frame_bytes",
+    "frame_hex_space",
+    "frame_hex_space_crlf",
+    "frame_hex_compact",
+    "frame_hex_compact_crlf",
+}
+
 def bool_env(name: str, default: bool = False) -> bool:
     value = str(os.environ.get(name, "1" if default else "0")).strip().lower()
     return value in {"1", "true", "yes", "on"}
@@ -82,7 +93,7 @@ def default_client_id(prefix: str) -> str:
 
 
 def default_base_topic(prefix: str) -> str:
-    return "sheltr" if str(prefix or "").strip().upper() == "MQTT" else "sheltr-cloud"
+    return "sheltr" if str(prefix or "").strip().upper() == "MQTT" else "dr154"
 
 
 def logger_name_for_bridge() -> str:
@@ -129,6 +140,57 @@ def clamp(value: int, min_value: int, max_value: int) -> int:
     return value
 
 
+def iso_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def frame_to_hex(frame: bytes, compact: bool = False) -> str:
+    if compact:
+        return "".join(f"{byte:02X}" for byte in frame)
+    return " ".join(f"{byte:02X}" for byte in frame)
+
+
+def extract_binary_protocol_frame(payload: bytes) -> bytes | None:
+    if len(payload) < FRAME_LEN:
+        return None
+    for idx in range(0, len(payload) - FRAME_LEN + 1):
+        if payload[idx] != FRAME_START:
+            continue
+        if payload[idx + FRAME_LEN - 1] == FRAME_END:
+            return payload[idx : idx + FRAME_LEN]
+    return None
+
+
+def extract_hex_protocol_frame(payload: bytes) -> bytes | None:
+    text = payload.decode("utf-8", errors="ignore")
+    tokens = re.findall(r"[0-9A-Fa-f]{2}", text)
+    if len(tokens) < FRAME_LEN:
+        return None
+    values = bytes(int(token, 16) for token in tokens)
+    return extract_binary_protocol_frame(values)
+
+
+def extract_protocol_frame(payload: bytes) -> bytes | None:
+    frame = extract_binary_protocol_frame(payload)
+    if frame is None:
+        frame = extract_hex_protocol_frame(payload)
+    return frame
+
+
+def frame_payload_for_format(frame: bytes, payload_format: str) -> Any:
+    fmt = str(payload_format or "frame_hex_space_crlf").strip().lower()
+    frame_hex_spaced = frame_to_hex(frame, compact=False)
+    if fmt == "frame_bytes":
+        return frame
+    if fmt == "frame_hex_compact":
+        return frame_to_hex(frame, compact=True)
+    if fmt == "frame_hex_compact_crlf":
+        return frame_to_hex(frame, compact=True) + "\r\n"
+    if fmt == "frame_hex_space":
+        return frame_hex_spaced
+    return frame_hex_spaced + "\r\n"
+
+
 class SheltrMqttBridge:
     def __init__(self) -> None:
         self.env_prefix = text_env("SHELTR_MQTT_PREFIX", "MQTT").strip().upper() or "MQTT"
@@ -146,6 +208,27 @@ class SheltrMqttBridge:
         self.poll_interval = int_env_prefixed(self.env_prefix, "POLL_INTERVAL", 30, 2, 3600)
         self.qos = int_env_prefixed(self.env_prefix, "QOS", 0, 0, 2)
         self.retain = bool_env_prefixed(self.env_prefix, "RETAIN", True)
+        self.cloud_protocol = self.env_prefix == "CLOUD_MQTT"
+        self.instance_id = text_env_prefixed(self.env_prefix, "INSTANCE_ID", "sheltr-mini")
+        self.instance_name = text_env_prefixed(self.env_prefix, "INSTANCE_NAME", self.bridge_name)
+        self.config_topic = text_env_prefixed(
+            self.env_prefix,
+            "CONFIG_TOPIC",
+            f"{self.base_topic}/{self.instance_id}/config",
+        ).strip("/")
+        self.command_topic = text_env_prefixed(
+            self.env_prefix,
+            "COMMAND_TOPIC",
+            f"{self.base_topic}/{self.instance_id}/cmd/light",
+        ).strip("/")
+        self.response_topic = text_env_prefixed(
+            self.env_prefix,
+            "RESPONSE_TOPIC",
+            f"{self.base_topic}/{self.instance_id}/pub/light",
+        ).strip("/")
+        self.payload_format = text_env_prefixed(self.env_prefix, "PAYLOAD_FORMAT", "frame_hex_space_crlf").lower()
+        if self.payload_format not in LIGHT_PAYLOAD_FORMATS:
+            self.payload_format = "frame_hex_space_crlf"
         self.http_base = text_env_any(("SHELTR_HTTP_BASE", "ALGODOMO_HTTP_BASE"), "http://127.0.0.1").rstrip("/")
         self.api_token = text_env_any(("SHELTR_TOKEN", "ALGODOMO_TOKEN"), "")
 
@@ -210,20 +293,29 @@ class SheltrMqttBridge:
                 continue
             if address < 0:
                 continue
-            channels: list[int] = []
+            channel_map: dict[int, dict[str, Any]] = {}
             for ch_raw in raw.get("channels", []) if isinstance(raw.get("channels"), list) else []:
                 if not isinstance(ch_raw, dict):
                     continue
                 num = as_int(ch_raw.get("channel"), -1)
                 if num >= 1:
-                    channels.append(num)
-            if not channels:
+                    channel_map[num] = {
+                        "channel": num,
+                        "name": str(ch_raw.get("name") or f"CH{num}").strip() or f"CH{num}",
+                        "room": str(ch_raw.get("room") or "Senza stanza").strip() or "Senza stanza",
+                    }
+            if not channel_map:
                 start = as_int(raw.get("channelStart"), 1)
                 end = as_int(raw.get("channelEnd"), start)
                 if end < start:
                     end = start
-                channels = list(range(max(1, start), max(1, end) + 1))
-            channels = sorted(set(channels))
+                for num in range(max(1, start), max(1, end) + 1):
+                    channel_map[num] = {
+                        "channel": num,
+                        "name": f"CH{num}",
+                        "room": "Senza stanza",
+                    }
+            channels = sorted(channel_map)
             slug = slugify(board_id)
             board = {
                 "id": board_id,
@@ -232,6 +324,8 @@ class SheltrMqttBridge:
                 "kind": kind,
                 "address": address,
                 "channels": channels,
+                "channelMeta": [channel_map[num] for num in channels],
+                "channelMap": channel_map,
             }
             boards.append(board)
             by_slug[slug] = board
@@ -253,6 +347,8 @@ class SheltrMqttBridge:
         return f"{self._topic_prefix(board)}/availability"
 
     def _bridge_status_topic(self) -> str:
+        if self.cloud_protocol:
+            return f"{self.base_topic}/{self.instance_id}/bridge/status"
         return f"{self.base_topic}/bridge/status"
 
     def _publish(self, topic: str, payload: Any, retain: bool | None = None) -> None:
@@ -274,6 +370,38 @@ class SheltrMqttBridge:
             "model": f"board-{board['kind']}",
         }
 
+    def _cloud_instance_payload(self) -> dict[str, Any]:
+        with self._lock:
+            boards = list(self._boards)
+        payload_boards: list[dict[str, Any]] = []
+        for board in boards:
+            channels = list(board.get("channelMeta") or [])
+            if not channels:
+                channels = [{"channel": num, "name": f"CH{num}", "room": "Senza stanza"} for num in board["channels"]]
+            payload_boards.append(
+                {
+                    "id": board["id"],
+                    "name": board["name"],
+                    "address": board["address"],
+                    "kind": board["kind"],
+                    "channelStart": channels[0]["channel"] if channels else 1,
+                    "channelEnd": channels[-1]["channel"] if channels else 1,
+                    "channels": channels,
+                }
+            )
+        return {
+            "id": self.instance_id,
+            "name": self.instance_name,
+            "protocolVersion": "1.6",
+            "boards": payload_boards,
+            "mqtt": {
+                "lightCommandTopic": self.command_topic,
+                "lightResponseTopic": self.response_topic,
+                "lightPayloadFormat": self.payload_format,
+            },
+            "updatedAt": iso_now(),
+        }
+
     def _bridge_device_payload(self) -> dict[str, Any]:
         return {
             "identifiers": [f"sheltr_{slugify(self.bridge_name)}_bridge"],
@@ -281,6 +409,12 @@ class SheltrMqttBridge:
             "manufacturer": "Sheltr",
             "model": "mqtt-bridge",
         }
+
+    def _publish_cloud_config(self) -> None:
+        if not self.cloud_protocol:
+            return
+        self._publish(self.config_topic, self._cloud_instance_payload(), retain=True)
+        LOGGER.info("%s: configurazione cloud pubblicata su %s", self.bridge_name, self.config_topic)
 
     def _publish_discovery(self) -> None:
         if not self.discovery_enabled:
@@ -509,6 +643,10 @@ class SheltrMqttBridge:
             return
         LOGGER.info("%s connesso a %s:%d", self.bridge_name, self.host, self.port)
         self._publish(self._bridge_status_topic(), "online", retain=True)
+        if self.cloud_protocol:
+            self._mqtt.subscribe(self.command_topic, qos=self.qos)
+            self._publish_cloud_config()
+            return
         # MQTT wildcard '+' deve occupare un livello intero (non "ch+").
         # Pattern validi:
         #   <base>/<slug>/poll/set
@@ -585,6 +723,19 @@ class SheltrMqttBridge:
         topic = str(getattr(msg, "topic", "") or "")
         payload = (getattr(msg, "payload", b"") or b"").decode("utf-8", errors="ignore").strip()
         try:
+            if self.cloud_protocol:
+                raw_payload = getattr(msg, "payload", b"") or b""
+                if topic != self.command_topic:
+                    return
+                frame = extract_protocol_frame(bytes(raw_payload))
+                if frame is None:
+                    raise RuntimeError("payload protocollo non valido")
+                response = self._api_get("/api/cmd/raw-frame", {"payload": frame_to_hex(frame, compact=True)})
+                response_frame = extract_protocol_frame(str(response.get("responseHex", "")).encode("utf-8"))
+                if response_frame is None:
+                    raise RuntimeError("risposta frame non valida")
+                self._publish(self.response_topic, frame_payload_for_format(response_frame, self.payload_format), retain=False)
+                return
             if topic == f"{self.base_topic}/poll_all/set":
                 self.publish_status(refresh=True)
                 return
@@ -644,8 +795,9 @@ class SheltrMqttBridge:
         self._load_boards()
         self._mqtt.connect_async(self.host, self.port, keepalive=self.keepalive)
         self._mqtt.loop_start()
-        poll_thread = threading.Thread(target=self._poll_loop, name="mqtt-poll", daemon=True)
-        poll_thread.start()
+        if not self.cloud_protocol:
+            poll_thread = threading.Thread(target=self._poll_loop, name="mqtt-poll", daemon=True)
+            poll_thread.start()
         while not self._stop.is_set():
             time.sleep(0.25)
         try:
