@@ -8,7 +8,6 @@ import errno
 import hashlib
 import json
 import math
-import mimetypes
 import os
 import select
 import shutil
@@ -2540,35 +2539,6 @@ class AlgoHandler(BaseHTTPRequestHandler):
                 self.send_response(HTTPStatus.MOVED_PERMANENTLY)
                 self.send_header("Location", "/")
                 self.end_headers()
-                return
-
-            if self.command == "GET" and path == "/esp32":
-                self.send_response(HTTPStatus.MOVED_PERMANENTLY)
-                self.send_header("Location", "/esp32_flash.html")
-                self.end_headers()
-                return
-
-            if self.command == "GET" and path == "/esp32_flash.html":
-                self._serve_file(
-                    PUBLIC_DIR / "esp32_flash.html",
-                    "text/html; charset=utf-8",
-                    "no-cache, max-age=0, must-revalidate",
-                )
-                return
-
-            if self.command == "GET" and path.startswith("/esp32/"):
-                rel = path[len("/esp32/") :]
-                rel_path = Path(rel)
-                if not rel or rel_path.is_absolute() or ".." in rel_path.parts:
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Percorso non valido"})
-                    return
-                base_dir = (PUBLIC_DIR / "esp32").resolve()
-                file_path = (base_dir / rel_path).resolve()
-                if file_path != base_dir and base_dir not in file_path.parents:
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Percorso non valido"})
-                    return
-                content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-                self._serve_file(file_path, content_type, "public, max-age=86400")
                 return
 
             if self.command == "GET" and path == "/manifest.webmanifest":
